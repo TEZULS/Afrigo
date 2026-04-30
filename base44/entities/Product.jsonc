@@ -1,0 +1,213 @@
+{
+  "name": "Product",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Nom du produit"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description du produit"
+    },
+    "price": {
+      "type": "number",
+      "description": "Prix en euros"
+    },
+    "is_free": {
+      "type": "boolean",
+      "description": "Produit gratuit",
+      "default": false
+    },
+    "free_product_min_purchase": {
+      "type": "number",
+      "description": "Montant minimum d'achat pour obtenir le produit gratuit",
+      "default": 15
+    },
+    "free_product_limit_per_customer": {
+      "type": "number",
+      "description": "Nombre maximum de ce produit gratuit par client",
+      "default": 1
+    },
+    "allowed_tiers": {
+      "type": "array",
+      "description": "Niveaux de clients autoris\u00e9s \u00e0 acheter ce produit",
+      "items": {
+        "type": "string",
+        "enum": [
+          "normal",
+          "argent",
+          "or",
+          "diamant"
+        ]
+      },
+      "default": [
+        "normal",
+        "argent",
+        "or",
+        "diamant"
+      ]
+    },
+    "featured_groups": {
+      "type": "array",
+      "description": "Groupes de mise en avant (nouveaut\u00e9, meilleure vente, coup de coeur, recommand\u00e9)",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "fruits_legumes",
+        "viandes_poissons",
+        "produits_laitiers",
+        "epices",
+        "boissons",
+        "surgeles",
+        "entretien",
+        "cosmetique",
+        "sec",
+        "frais"
+      ],
+      "description": "Cat\u00e9gorie du produit"
+    },
+    "country_of_origin": {
+      "type": "string",
+      "description": "Pays d'origine du produit"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "URL de l'image principale du produit"
+    },
+    "images": {
+      "type": "array",
+      "description": "URLs des images du produit",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stock_quantity": {
+      "type": "number",
+      "description": "Quantit\u00e9 en stock"
+    },
+    "stock_unit": {
+      "type": "string",
+      "enum": [
+        "unite",
+        "kg",
+        "litre",
+        "metre",
+        "lot",
+        "carton",
+        "pack",
+        "sache",
+        "sac",
+        "boite"
+      ],
+      "default": "unite",
+      "description": "Unit\u00e9 du stock"
+    },
+    "unit": {
+      "type": "string",
+      "enum": [
+        "piece",
+        "unite",
+        "kg",
+        "litre",
+        "metre",
+        "bouteille",
+        "pack",
+        "lot",
+        "carton",
+        "sac",
+        "sache",
+        "boite"
+      ],
+      "description": "Unit\u00e9 de vente"
+    },
+    "variants": {
+      "type": "array",
+      "description": "Variantes du produit (taille, forme, poids, couleur)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "taille",
+              "forme",
+              "poids",
+              "pack",
+              "lot",
+              "couleur"
+            ]
+          },
+          "value": {
+            "type": "string"
+          },
+          "color_code": {
+            "type": "string",
+            "description": "Code couleur hexad\u00e9cimal (pour type couleur)"
+          },
+          "price_modifier": {
+            "type": "number",
+            "description": "Modification du prix (+ ou -)"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "URL de l'image associ\u00e9e \u00e0 cette variante"
+          },
+          "stock_quantity": {
+            "type": "number",
+            "description": "Stock sp\u00e9cifique pour cette variante"
+          }
+        }
+      }
+    },
+    "is_promotion": {
+      "type": "boolean",
+      "description": "Produit en promotion"
+    },
+    "promotion_price": {
+      "type": "number",
+      "description": "Prix promotionnel"
+    },
+    "promotion_end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de fin de promotion"
+    },
+    "expiration_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date d'expiration du produit (visible uniquement par l'admin)"
+    },
+    "purchase_count": {
+      "type": "number",
+      "description": "Nombre de personnes qui ont achet\u00e9 ce produit (g\u00e9r\u00e9 manuellement par l'admin)",
+      "default": 0
+    },
+    "purchase_count_message": {
+      "type": "string",
+      "description": "Message personnalis\u00e9 \u00e0 afficher avec le nombre d'achats",
+      "default": "personnes ont achet\u00e9 ce produit"
+    },
+    "show_purchase_count": {
+      "type": "boolean",
+      "description": "Afficher le nombre d'achats sur la carte produit",
+      "default": false
+    }
+  },
+  "required": [
+    "name",
+    "price",
+    "category",
+    "stock_quantity"
+  ],
+  "rls": {
+    "create": {
+      "created_by": "{{user.email}}"
+    }
+  }
+}

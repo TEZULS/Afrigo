@@ -1,0 +1,36 @@
+{
+  "name": "InternalRegulations",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Titre du r\u00e8glement int\u00e9rieur",
+      "default": "R\u00e8glement int\u00e9rieur"
+    },
+    "content": {
+      "type": "string",
+      "description": "Contenu du r\u00e8glement int\u00e9rieur (HTML/Markdown)"
+    },
+    "version": {
+      "type": "number",
+      "description": "Num\u00e9ro de version du r\u00e8glement",
+      "default": 1
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Le r\u00e8glement est actif",
+      "default": true
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date d'entr\u00e9e en vigueur"
+    }
+  },
+  "required": [
+    "title",
+    "content",
+    "version",
+    "is_active"
+  ]
+}

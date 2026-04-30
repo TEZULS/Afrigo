@@ -1,0 +1,68 @@
+css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --afrigo-green: #008000;
+  --afrigo-green-hover: #006600;
+  --afrigo-green-light: rgba(0, 128, 0, 0.1);
+}
+
+/* Print styles */
+@media print {
+  * {
+    background: transparent !important;
+  }
+  
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-only {
+    display: block !important;
+  }
+  
+  body {
+    background: white !important;
+    margin: 0;
+    padding: 0;
+    color: black;
+  }
+  
+  html {
+    background: white !important;
+  }
+  
+  /* Hide header */
+  header {
+    display: none !important;
+  }
+  
+  /* Ensure proper page breaks */
+  @page {
+    margin: 0.5cm;
+    size: A4 portrait;
+  }
+  
+  /* Avoid breaking inside elements */
+  .avoid-break {
+    page-break-inside: avoid;
+  }
+  
+  /* Force single page layout */
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  
+  .print-container {
+    max-height: none !important;
+    page-break-after: avoid !important;
+  }
+}
+
+/* Hide print-only by default */
+.print-only {
+  display: none;
+}

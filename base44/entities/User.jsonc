@@ -1,0 +1,22 @@
+{
+  "name": "User",
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "user"
+      ],
+      "default": "user"
+    },
+    "privacy_policy_accepted_version": {
+      "type": "string",
+      "description": "Version de la politique de confidentialit\u00e9 accept\u00e9e"
+    },
+    "privacy_policy_accepted_at": {
+      "type": "string",
+      "description": "Date d'acceptation de la politique de confidentialit\u00e9"
+    }
+  }
+}
