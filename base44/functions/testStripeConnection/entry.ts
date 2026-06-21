@@ -19,7 +19,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Tester la connexion en récupérant les infos du compte
     const stripe = new Stripe(stripeApiKey);
     const account = await stripe.balance.retrieve();
 

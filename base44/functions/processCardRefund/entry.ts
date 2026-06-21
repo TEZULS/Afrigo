@@ -20,7 +20,6 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Récupérer la commande pour trouver le payment_intent
     const orders = await base44.asServiceRole.entities.Order.filter({ id: orderId });
     const order = orders[0];
 
@@ -32,10 +31,9 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'No payment intent found for this order' }, { status: 400 });
     }
 
-    // Créer le remboursement Stripe
     const refund = await stripe.refunds.create({
       payment_intent: order.stripe_payment_intent_id,
-      amount: Math.round(amount * 100), // Stripe utilise les centimes
+      amount: Math.round(amount * 100), // Stripe expects amounts in cents
       reason: 'requested_by_customer',
       metadata: {
         order_id: orderId,
@@ -45,7 +43,6 @@ Deno.serve(async (req) => {
       }
     });
 
-    // Mettre à jour le statut de la demande de remboursement
     await base44.asServiceRole.entities.Refund.update(refundId, {
       status: 'completed',
       admin_notes: `Remboursement Stripe effectué: ${refund.id}`

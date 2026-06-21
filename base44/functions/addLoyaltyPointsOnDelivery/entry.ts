@@ -5,18 +5,17 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const { event, data: order, old_data } = await req.json();
 
-    // Vérifier si le statut vient de passer à "delivered" (confirmé à la livraison)
-    // Ne pas ajouter les points si le statut est "confirmed" ou autre
+    // Only award points when the order transitions into 'delivered'
     if (event.type !== 'update' || order.status !== 'delivered') {
       return Response.json({ message: 'No action needed' });
     }
-    
-    // Vérifier que ce n'est pas un update multiple (éviter la duplication)
+
+    // Guard against repeated updates on an already-delivered order
     if (old_data?.status === 'delivered') {
       return Response.json({ message: 'Already delivered' });
     }
 
-    // Vérifier si des points ont déjà été attribués pour cette commande (évite la duplication)
+    // Defensive idempotency check in case the transition guard above is bypassed
     const existingPoints = await base44.asServiceRole.entities.LoyaltyPoints.filter({
       order_id: order.id,
       transaction_type: 'earned'
@@ -25,7 +24,6 @@ Deno.serve(async (req) => {
       return Response.json({ message: 'Points already awarded for this order' });
     }
 
-    // Récupérer les paramètres de fidélité
     const loyaltySettings = await base44.asServiceRole.entities.LoyaltySettings.list();
     const settings = loyaltySettings[0];
 
@@ -33,16 +31,27 @@ Deno.serve(async (req) => {
       return Response.json({ message: 'Loyalty program not active' });
     }
 
-    // Vérifier le montant minimum
-    if (order.total_amount < settings.min_purchase_amount) {
+    // Calculer le montant éligible (subtotal + delivery_fee). On reconstitue à
+    // partir des items si `total_amount` est manquant/incohérent — protège
+    // contre les ordres anciens où le champ n'était pas initialisé.
+    const itemsTotal = Array.isArray(order.items)
+      ? order.items.reduce((sum: number, it: any) => sum + (Number(it.total_price) || 0), 0)
+      : 0;
+    const deliveryFee = Number(order.delivery_fee) || 0;
+    const eligibleAmount = Math.max(
+      Number(order.total_amount) || 0,
+      itemsTotal + deliveryFee,
+    );
+
+    if (eligibleAmount < settings.min_purchase_amount) {
       return Response.json({ message: 'Order below minimum amount' });
     }
 
-    // Calculer les points à attribuer : 1 point par euro dépensé (égal au montant arrondi)
-    // points_per_euro doit être 1 pour garantir commande 20€ = 20 points
-    const pointsToAdd = Math.floor(order.total_amount);
+    // Règle métier confirmée : 1€ dépensé = 1 point gagné. La règle est
+    // hard-codée ici (indépendante de `settings.points_per_euro`) pour
+    // garantir un comportement cohérent même si l'admin modifie le réglage.
+    const pointsToAdd = Math.round(eligibleAmount);
 
-    // Calculer la date d'expiration
     let expiresAt = new Date();
     if (settings.points_validity_unit === 'days') {
       expiresAt.setDate(expiresAt.getDate() + settings.points_validity_duration);
@@ -52,7 +61,6 @@ Deno.serve(async (req) => {
       expiresAt.setMonth(expiresAt.getMonth() + settings.points_validity_duration);
     }
 
-    // Créer la transaction de points
     await base44.asServiceRole.entities.LoyaltyPoints.create({
       customer_email: order.customer_email,
       points: pointsToAdd,

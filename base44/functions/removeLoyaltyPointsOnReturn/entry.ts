@@ -5,12 +5,11 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const { event, data: returnData, old_data } = await req.json();
 
-    // Vérifier si le retour vient d'être approuvé
+    // Only react to the transition into 'approved'
     if (event.type !== 'update' || returnData.status !== 'approved' || old_data?.status === 'approved') {
       return Response.json({ message: 'No action needed' });
     }
 
-    // Récupérer la commande associée
     const orders = await base44.asServiceRole.entities.Order.filter({ id: returnData.order_id });
     if (orders.length === 0) {
       return Response.json({ message: 'Order not found' });
@@ -18,7 +17,6 @@ Deno.serve(async (req) => {
 
     const order = orders[0];
 
-    // Récupérer les paramètres de fidélité
     const loyaltySettings = await base44.asServiceRole.entities.LoyaltySettings.list();
     const settings = loyaltySettings[0];
 
@@ -26,8 +24,9 @@ Deno.serve(async (req) => {
       return Response.json({ message: 'Loyalty program not active' });
     }
 
-    // Calculer les points à retirer en fonction du montant remboursé
-    const pointsToRemove = Math.floor(returnData.refund_amount * settings.points_per_euro);
+    // Symétrique à `addLoyaltyPointsOnDelivery` : 1€ remboursé = 1 point retiré.
+    // (La règle est hard-codée et n'utilise pas `settings.points_per_euro`.)
+    const pointsToRemove = Math.round(Number(returnData.refund_amount) || 0);
 
     if (pointsToRemove > 0) {
       await base44.asServiceRole.entities.LoyaltyPoints.create({

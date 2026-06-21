@@ -3,14 +3,12 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    
-    // Vérifier que l'utilisateur est admin
+
     const user = await base44.auth.me();
     if (!user || user.role !== 'admin') {
       return Response.json({ error: 'Accès refusé' }, { status: 403 });
     }
 
-    // Récupérer toutes les collectes non archivées
     const collections = await base44.asServiceRole.entities.CashCollection.filter({
       is_archived: false
     });
@@ -23,7 +21,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Archiver toutes les collectes
     const now = new Date().toISOString();
     const updates = await Promise.all(
       collections.map(collection =>

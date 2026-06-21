@@ -1,0 +1,67 @@
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './App.tsx',
+    './src/**/*.{ts,tsx}',
+  ],
+  presets: [require('nativewind/preset')],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        background: 'rgb(var(--color-background) / <alpha-value>)',
+        foreground: 'rgb(var(--color-foreground) / <alpha-value>)',
+        card: 'rgb(var(--color-card) / <alpha-value>)',
+        'card-foreground': 'rgb(var(--color-card-foreground) / <alpha-value>)',
+        primary: 'rgb(var(--color-primary) / <alpha-value>)',
+        'primary-foreground': 'rgb(var(--color-primary-foreground) / <alpha-value>)',
+        secondary: 'rgb(var(--color-secondary) / <alpha-value>)',
+        'secondary-foreground': 'rgb(var(--color-secondary-foreground) / <alpha-value>)',
+        muted: 'rgb(var(--color-muted) / <alpha-value>)',
+        'muted-foreground': 'rgb(var(--color-muted-foreground) / <alpha-value>)',
+        accent: 'rgb(var(--color-accent) / <alpha-value>)',
+        'accent-foreground': 'rgb(var(--color-accent-foreground) / <alpha-value>)',
+        destructive: 'rgb(var(--color-destructive) / <alpha-value>)',
+        'destructive-foreground': 'rgb(var(--color-destructive-foreground) / <alpha-value>)',
+        border: 'rgb(var(--color-border) / <alpha-value>)',
+        input: 'rgb(var(--color-input) / <alpha-value>)',
+        ring: 'rgb(var(--color-ring) / <alpha-value>)',
+        // Brand AfriGo (préservé du web)
+        brand: {
+          orange: '#F97316',
+          'orange-dark': '#EA580C',
+          green: '#008000',
+          'green-light': '#10B981',
+          'green-dark': '#065F46',
+          rose: '#F43F5E',
+          slate: {
+            50: '#F8FAFC',
+            100: '#F1F5F9',
+            200: '#E2E8F0',
+            300: '#CBD5E1',
+            400: '#94A3B8',
+            500: '#64748B',
+            600: '#475569',
+            700: '#334155',
+            800: '#1E293B',
+            900: '#0F172A',
+            950: '#020617',
+          },
+        },
+      },
+      borderRadius: {
+        sm: '4px',
+        DEFAULT: '8px',
+        md: '8px',
+        lg: '12px',
+        xl: '16px',
+        '2xl': '20px',
+        '3xl': '24px',
+      },
+      fontFamily: {
+        sans: ['Inter', 'System'],
+      },
+    },
+  },
+  plugins: [],
+};

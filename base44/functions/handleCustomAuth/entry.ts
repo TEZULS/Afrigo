@@ -6,7 +6,6 @@ Deno.serve(async (req) => {
     const { action, email, password, phone } = await req.json();
 
     if (action === 'check_exists') {
-      // Vérifier si email ou téléphone existe déjà
       const users = await base44.asServiceRole.entities.User.list();
       const emailExists = users.find(u => u.email === email);
       const phoneExists = phone ? users.find(u => u.phone === phone) : null;
@@ -19,7 +18,6 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'verify_login') {
-      // Vérifier les identifiants
       const users = await base44.asServiceRole.entities.User.list();
       const user = users.find(u => u.email === email && u.user_password === password);
       
@@ -42,13 +40,11 @@ Deno.serve(async (req) => {
       const { password, civility, first_name, last_name, phone, address, postal_code, city } = body;
       
       try {
-        // Inviter l'utilisateur via Base44
         await base44.asServiceRole.users.inviteUser(email, 'user');
-        
-        // Attendre que l'utilisateur soit créé
+
+        // Wait for user creation to propagate before updating
         await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        // Récupérer et mettre à jour l'utilisateur
+
         const users = await base44.asServiceRole.entities.User.filter({ email });
         if (users.length > 0) {
           await base44.asServiceRole.entities.User.update(users[0].id, {
@@ -74,7 +70,6 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'reset_password') {
-      // Envoyer email de réinitialisation
       const users = await base44.asServiceRole.entities.User.list();
       const user = users.find(u => u.email === email);
       
@@ -82,17 +77,15 @@ Deno.serve(async (req) => {
         return Response.json({ success: false, error: 'Aucun compte trouvé avec cet email' });
       }
 
-      // Générer un token temporaire
       const resetToken = crypto.randomUUID();
-      const resetExpiry = new Date(Date.now() + 3600000).toISOString(); // 1 heure
-      
-      // Sauvegarder le token
+      const resetExpiry = new Date(Date.now() + 3600000).toISOString(); // 1h validity
+
       await base44.asServiceRole.entities.User.update(user.id, {
         reset_token: resetToken,
         reset_token_expiry: resetExpiry
       });
 
-      // Envoyer l'email - Utiliser le header referer pour obtenir l'URL de l'application
+      // Use referer header to derive the app URL for the reset link
       const appUrl = req.headers.get('referer') || req.headers.get('origin') || 'https://early-mole-23-jarewja5r0va.base44.app';
       const baseUrl = appUrl.split('?')[0].replace(/\/$/, '').replace(/\/[^\/]*$/, '');
       const resetLink = `${baseUrl}/Profile?reset=${resetToken}`;
@@ -144,7 +137,6 @@ Deno.serve(async (req) => {
         return Response.json({ success: false, error: 'Lien invalide ou expiré' });
       }
 
-      // Mettre à jour le mot de passe
       await base44.asServiceRole.entities.User.update(user.id, {
         user_password: newPassword,
         reset_token: null,
@@ -160,10 +152,8 @@ Deno.serve(async (req) => {
         return Response.json({ success: false, error: 'Non authentifié' }, { status: 401 });
       }
 
-      // Supprimer toutes les données liées au compte
       const userEmail = user.email;
 
-      // Supprimer les entités liées
       const [cartItems, messages, loyaltyPoints, walletTransactions, orders, returns, reviews, promoCodes, freeProductClaims] = await Promise.all([
         base44.asServiceRole.entities.CartItem.filter({ customer_email: userEmail }),
         base44.asServiceRole.entities.Message.filter({ customer_email: userEmail }),
@@ -187,7 +177,6 @@ Deno.serve(async (req) => {
         ...freeProductClaims.map(i => base44.asServiceRole.entities.FreeProductClaim.delete(i.id)),
       ]);
 
-      // Supprimer l'utilisateur lui-même
       const users = await base44.asServiceRole.entities.User.filter({ email: userEmail });
       if (users.length > 0) {
         await base44.asServiceRole.entities.User.delete(users[0].id);

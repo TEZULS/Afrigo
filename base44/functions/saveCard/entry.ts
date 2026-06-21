@@ -21,7 +21,6 @@ Deno.serve(async (req) => {
 
     const stripe = new Stripe(stripeSecretKey);
 
-    // Récupérer ou créer un customer Stripe pour cet utilisateur
     let customerId = user.stripe_customer_id;
 
     if (!customerId) {
@@ -33,20 +32,17 @@ Deno.serve(async (req) => {
       await base44.auth.updateMe({ stripe_customer_id: customerId });
     }
 
-    // Attacher le paymentMethod au customer (ignorer si déjà attaché)
+    // Attaching a payment method that's already attached throws — swallow that case
     try {
       await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
     } catch (attachErr) {
-      // Déjà attaché à ce customer, on continue
       if (!attachErr.message?.includes('already been attached')) throw attachErr;
     }
 
-    // Définir comme moyen de paiement par défaut
     await stripe.customers.update(customerId, {
       invoice_settings: { default_payment_method: paymentMethodId },
     });
 
-    // Récupérer les détails de la carte pour affichage
     const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
     const cardInfo = {
       last4: pm.card.last4,
@@ -55,7 +51,6 @@ Deno.serve(async (req) => {
       exp_year: pm.card.exp_year,
     };
 
-    // Sauvegarder l'ID du paymentMethod sur le profil utilisateur
     await base44.auth.updateMe({
       saved_payment_method_id: paymentMethodId,
       saved_card_info: JSON.stringify(cardInfo),

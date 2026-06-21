@@ -15,21 +15,17 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Email et rôle requis' }, { status: 400 });
     }
 
-    // Vérifier si l'utilisateur existe déjà
     const existingUsers = await base44.asServiceRole.entities.User.filter({ email });
     if (existingUsers.length > 0) {
       return Response.json({ error: 'Cet utilisateur existe déjà' }, { status: 400 });
     }
 
-    // Inviter l'utilisateur via Base44
     await base44.users.inviteUser(email, role);
 
-    // Récupérer le domaine de l'app depuis l'URL de la requête
     const url = new URL(req.url);
-    const appDomain = url.origin; // Ex: https://votre-domaine.com
+    const appDomain = url.origin;
 
-    // Envoyer un email de bienvenue personnalisé en français
-    const subject = role === 'admin' 
+    const subject = role === 'admin'
       ? '🎉 Bienvenue sur AfriGo - Votre accès administrateur'
       : '🎉 Bienvenue sur AfriGo - Commencez vos courses !';
 

@@ -5,12 +5,11 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const { event, data: order, old_data } = await req.json();
 
-    // Vérifier si la commande vient d'être annulée (depuis n'importe quel statut)
+    // Only react to the transition into 'cancelled' from another status
     if (event.type !== 'update' || order.status !== 'cancelled' || old_data?.status === 'cancelled') {
       return Response.json({ message: 'No action needed' });
     }
 
-    // Récupérer les points gagnés pour cette commande
     const earnedPoints = await base44.asServiceRole.entities.LoyaltyPoints.filter({
       customer_email: order.customer_email,
       order_id: order.id,
@@ -21,21 +20,18 @@ Deno.serve(async (req) => {
       return Response.json({ message: 'No earned points found for this order' });
     }
 
-    // Calculer le total des points gagnés (positifs seulement)
     const totalEarned = earnedPoints.reduce((sum, p) => sum + (p.points > 0 ? p.points : 0), 0);
 
     if (totalEarned <= 0) {
       return Response.json({ message: 'No positive points to remove' });
     }
 
-    // Vérifier si des points de retrait ont déjà été créés pour cette commande
     const alreadyRemoved = await base44.asServiceRole.entities.LoyaltyPoints.filter({
       customer_email: order.customer_email,
       order_id: order.id,
       transaction_type: 'expired'
     });
 
-    // Calculer ce qui a déjà été retiré
     const alreadyRemovedTotal = alreadyRemoved.reduce((sum, p) => sum + Math.abs(p.points), 0);
 
     if (alreadyRemovedTotal >= totalEarned) {
@@ -44,7 +40,7 @@ Deno.serve(async (req) => {
 
     const pointsToRemove = totalEarned - alreadyRemovedTotal;
 
-    // Créer une transaction négative avec type 'expired' pour tracer l'annulation
+    // Negative transaction with type 'expired' so the cancellation is traceable
     await base44.asServiceRole.entities.LoyaltyPoints.create({
       customer_email: order.customer_email,
       points: -pointsToRemove,

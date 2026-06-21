@@ -4,7 +4,6 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
 
-    // Récupérer les paramètres de fidélité
     const loyaltySettings = await base44.asServiceRole.entities.LoyaltySettings.list();
     const settings = loyaltySettings[0];
 
@@ -12,10 +11,9 @@ Deno.serve(async (req) => {
       return Response.json({ message: 'Système de fidélité désactivé' });
     }
 
-    // Calculer la date limite
     const now = new Date();
     let limitDate = new Date();
-    
+
     if (settings.points_validity_unit === 'days') {
       limitDate.setDate(now.getDate() - settings.points_validity_duration);
     } else if (settings.points_validity_unit === 'weeks') {
@@ -24,24 +22,20 @@ Deno.serve(async (req) => {
       limitDate.setMonth(now.getMonth() - settings.points_validity_duration);
     }
 
-    // Récupérer tous les utilisateurs
     const users = await base44.asServiceRole.entities.User.list();
     let resetCount = 0;
 
     for (const user of users) {
-      // Récupérer les commandes livrées de l'utilisateur
       const orders = await base44.asServiceRole.entities.Order.filter({
         customer_email: user.email,
         status: 'delivered'
       });
 
-      // Vérifier si toutes les commandes sont hors période
       const hasRecentOrders = orders.some(order => {
         const deliveredDate = new Date(order.delivered_date);
         return deliveredDate >= limitDate;
       });
 
-      // Si aucune commande récente et que l'utilisateur a des points
       if (!hasRecentOrders && user.loyalty_points > 0) {
         await base44.asServiceRole.entities.User.update(user.id, {
           loyalty_points: 0,

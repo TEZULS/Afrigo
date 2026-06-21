@@ -12,7 +12,6 @@ Deno.serve(async (req) => {
 
     const { amount, orderData, useSavedCard, orderId, saveCard } = await req.json();
 
-    // Récupérer la clé secrète depuis AppSettings
     const settings = await base44.asServiceRole.entities.AppSettings.list();
     const stripeSecretKey = settings[0]?.stripe_secret_key;
 
@@ -24,7 +23,6 @@ Deno.serve(async (req) => {
 
     const stripe = new Stripe(stripeSecretKey);
 
-    // Récupérer ou créer un customer Stripe pour cet utilisateur
     let customerId = user.stripe_customer_id;
     if (!customerId) {
       const customer = await stripe.customers.create({
@@ -46,20 +44,18 @@ Deno.serve(async (req) => {
       },
     };
 
-    // Si l'utilisateur a une carte enregistrée et veut l'utiliser
     if (useSavedCard && user.saved_payment_method_id) {
       piOptions.payment_method = user.saved_payment_method_id;
       piOptions.confirm = true;
       piOptions.off_session = true;
     } else if (saveCard) {
-      // Enregistrer la carte pour usage futur
+      // Persist the payment method on Stripe so the user can reuse it later
       piOptions.setup_future_usage = 'off_session';
       piOptions.automatic_payment_methods = { enabled: true };
     } else {
       piOptions.automatic_payment_methods = { enabled: true };
     }
 
-    // Créer le PaymentIntent
     const paymentIntent = await stripe.paymentIntents.create(piOptions);
 
     return Response.json({ 

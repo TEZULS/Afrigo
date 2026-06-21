@@ -4,19 +4,16 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
 
-    // Pour les automations schedulées, utiliser service role
     const now = new Date();
 
-    // Le mois précédent (on archive le mois qui vient de se terminer)
+    // Archive the month that just ended
     const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0); // dernier jour du mois précédent
+    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0); // last day of previous month
 
     const monthLabel = `${prevMonthStart.getFullYear()}-${String(prevMonthStart.getMonth() + 1).padStart(2, '0')}`;
 
-    // Récupérer toutes les commandes
     const allOrders = await base44.asServiceRole.entities.Order.list('-created_date', 2000);
 
-    // Filtrer les commandes valides du mois précédent
     const monthOrders = allOrders.filter(order => {
       if (order.payment_method === 'card' && order.status === 'pending') return false;
       const d = new Date(order.created_date);
@@ -27,7 +24,6 @@ Deno.serve(async (req) => {
     const orderCount = monthOrders.length;
     const averageOrderValue = orderCount > 0 ? totalRevenue / orderCount : 0;
 
-    // Vérifier si l'entrée mensuelle existe déjà
     const existing = await base44.asServiceRole.entities.RevenueHistory.filter({ period_type: 'monthly', period_label: monthLabel });
 
     if (existing.length > 0) {
@@ -48,7 +44,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Archiver aussi les stats hebdomadaires des 4 semaines du mois précédent
+    // Archive weekly stats for each week of the previous month
     for (let week = 0; week < 5; week++) {
       const weekStart = new Date(prevMonthStart);
       weekStart.setDate(1 + week * 7);
@@ -89,7 +85,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Archiver les stats journalières du mois précédent
+    // Archive daily stats for each day of the previous month
     for (let d = 1; d <= prevMonthEnd.getDate(); d++) {
       const dayDate = new Date(prevMonthStart.getFullYear(), prevMonthStart.getMonth(), d);
       const dayLabel = dayDate.toISOString().split('T')[0];

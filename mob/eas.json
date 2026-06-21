@@ -1,0 +1,49 @@
+{
+  "cli": {
+    "version": ">= 10.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "base": {
+      "node": "20.18.0",
+      "env": {
+        "EXPO_PUBLIC_BASE44_APP_ID": "6947869a3a13c81a6fad2204"
+      }
+    },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "android": { "buildType": "apk", "gradleCommand": ":app:assembleDebug" },
+      "ios": { "simulator": true }
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "channel": "preview",
+      "android": { "buildType": "apk" },
+      "ios": { "simulator": false, "image": "latest" }
+    },
+    "production": {
+      "extends": "base",
+      "channel": "production",
+      "autoIncrement": true,
+      "android": { "buildType": "app-bundle" },
+      "ios": { "image": "latest" }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./secrets/play-service-account.json",
+        "track": "internal"
+      },
+      "ios": {
+        "appleId": "afrigo13kane@gmail.com",
+        "ascAppId": "6771119661",
+        "appleTeamId": "L2XBYAZYUL"
+      }
+    }
+  }
+}

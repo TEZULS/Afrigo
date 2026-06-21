@@ -1,0 +1,150 @@
+{
+  "expo": {
+    "name": "AfriGo",
+    "slug": "afrigo",
+    "scheme": "afrigo",
+    "version": "1.0.9",
+    "orientation": "portrait",
+    "icon": "./assets/logo.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.afrigo.mobile",
+      "buildNumber": "7",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "associatedDomains": [
+        "applinks:afrigo.app"
+      ],
+      "infoPlist": {
+        "NSCameraUsageDescription": "AfriGo utilise l'appareil photo pour rechercher des produits par image et photographier des retours.",
+        "NSPhotoLibraryUsageDescription": "AfriGo a besoin d'accéder à vos photos pour la recherche par image et les preuves de retour.",
+        "NSPhotoLibraryAddUsageDescription": "AfriGo enregistre vos QR codes et bordereaux de commande.",
+        "NSLocationWhenInUseUsageDescription": "AfriGo utilise votre position pour suggérer la zone de livraison la plus proche.",
+        "NSUserTrackingUsageDescription": "Les statistiques anonymes améliorent les recommandations de produits.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "app.afrigo.mobile",
+      "versionCode": 9,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "afrigo.app",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logo.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.1",
+            "useFrameworks": "static"
+          },
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "minSdkVersion": 24
+          }
+        }
+      ],
+      [
+        "expo-secure-store"
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "AfriGo souhaite accéder à vos photos pour la recherche par image et les preuves de retour.",
+          "cameraPermission": "AfriGo souhaite accéder à votre appareil photo pour la recherche par image."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "AfriGo utilise votre position pour calculer la zone de livraison."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#F97316"
+        }
+      ],
+      [
+        "expo-updates",
+        {
+          "username": "afrigo"
+        }
+      ],
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.app.afrigo.mobile",
+          "enableGooglePay": true
+        }
+      ],
+      "expo-font"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "501b64d7-fd58-449d-8a1e-046a2d43e7d1"
+      }
+    },
+    "owner": "tezuls",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/501b64d7-fd58-449d-8a1e-046a2d43e7d1",
+      "fallbackToCacheTimeout": 0
+    }
+  }
+}

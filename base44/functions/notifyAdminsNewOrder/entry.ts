@@ -17,7 +17,6 @@ Deno.serve(async (req) => {
 
     const paymentLabel = paymentMethod === 'card' ? 'Carte bancaire' : 'Paiement à la livraison';
 
-    // Récupérer tous les admins
     const admins = await base44.asServiceRole.entities.User.filter({ role: 'admin' });
 
     await Promise.all(admins.map(admin =>

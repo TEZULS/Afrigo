@@ -3,8 +3,7 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    
-    // Authentification admin
+
     const user = await base44.auth.me();
     if (!user || user.role !== 'admin') {
       return Response.json({ error: 'Non autorisé' }, { status: 401 });
@@ -16,7 +15,6 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Paramètres manquants' }, { status: 400 });
     }
 
-    // Récupérer les infos de la commande
     const orders = await base44.asServiceRole.entities.Order.filter({ id: orderId });
     const order = orders[0];
 
@@ -24,14 +22,12 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Commande introuvable' }, { status: 404 });
     }
 
-    // Récupérer les infos du client
     const users = await base44.asServiceRole.entities.User.filter({ email: customerEmail });
     const customer = users[0];
 
     const customerName = customer?.first_name || customer?.full_name || 'Client';
     const orderNumber = orderId.slice(-8).toUpperCase();
 
-    // Envoyer l'email
     const emailBody = `
 Bonjour ${customerName},
 
@@ -55,11 +51,10 @@ L'équipe AfriGo
       body: emailBody
     });
 
-    // Envoyer le SMS (simulé via email pour l'instant - à remplacer par un vrai service SMS)
+    // SMS placeholder: until a provider (Twilio/Vonage/…) is wired up, send the
+    // SMS body as an email tagged "[SMS]" so the message is still delivered.
     const smsMessage = `AfriGo: Votre commande #${orderNumber} n'a pas été livrée. Motif: ${reason}. Contactez-nous pour plus d'infos.`;
-    
-    // Note: Pour un vrai SMS, utiliser un service comme Twilio, Vonage, etc.
-    // Ici on envoie un email avec "[SMS]" dans le sujet
+
     await base44.asServiceRole.integrations.Core.SendEmail({
       to: customerEmail,
       subject: `[SMS] Commande #${orderNumber} non livrée`,

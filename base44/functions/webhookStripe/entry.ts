@@ -6,12 +6,10 @@ const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
 
 Deno.serve(async (req) => {
   try {
-    // Vérifier que c'est une requête POST
     if (req.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
 
-    // Obtenir la signature et le body
     const signature = req.headers.get('stripe-signature');
     const body = await req.text();
 
@@ -19,7 +17,7 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Missing signature or webhook secret' }, { status: 400 });
     }
 
-    // Valider la signature (IMPORTANT: faire avant d'initialiser base44.auth)
+    // IMPORTANT: validate the signature before initialising base44.auth
     let event;
     try {
       event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret);
@@ -28,10 +26,8 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Webhook signature verification failed' }, { status: 400 });
     }
 
-    // Maintenant initialiser Base44 avec l'authentification
     const base44 = createClientFromRequest(req);
 
-    // Traiter selon le type d'événement
     switch (event.type) {
       case 'payment_intent.succeeded': {
         await handlePaymentSucceeded(event.data.object, base44);
@@ -46,7 +42,7 @@ Deno.serve(async (req) => {
         break;
       }
       default:
-        console.log(`Unhandled event type: ${event.type}`);
+        break;
     }
 
     return Response.json({ received: true });
@@ -63,25 +59,21 @@ async function handlePaymentSucceeded(paymentIntent, base44) {
     const customerEmail = metadata?.customer_email;
 
     if (!orderId) {
-      console.log('No order_id in payment metadata');
       return;
     }
 
-    // Récupérer la commande
     const order = await base44.asServiceRole.entities.Order.filter({ id: orderId });
     if (!order || order.length === 0) {
       console.error(`Order not found: ${orderId}`);
       return;
     }
 
-    // Mettre à jour le statut de la commande
     await base44.asServiceRole.entities.Order.update(orderId, {
       status: 'confirmed',
       payment_method: 'card',
       payment_status: 'completed'
     });
 
-    // Envoyer une notification au client
     if (customerEmail) {
       await base44.integrations.Core.SendEmail({
         to: customerEmail,
@@ -90,7 +82,6 @@ async function handlePaymentSucceeded(paymentIntent, base44) {
       });
     }
 
-    // Notifier tous les admins
     const admins = await base44.asServiceRole.entities.User.filter({ role: 'admin' });
     for (const admin of admins) {
       await base44.integrations.Core.SendEmail({
@@ -99,8 +90,6 @@ async function handlePaymentSucceeded(paymentIntent, base44) {
         body: `Une nouvelle commande a été payée par carte bancaire.\n\nClient: ${customerEmail}\nMontant: ${paymentIntent.amount / 100}€\nCommande ID: ${orderId}\n\nConnectez-vous à l'interface admin pour traiter cette commande.`
       });
     }
-
-    console.log(`Payment succeeded for order: ${orderId}`);
   } catch (error) {
     console.error('Error handling payment succeeded:', error);
   }
@@ -113,18 +102,15 @@ async function handlePaymentFailed(paymentIntent, base44) {
     const customerEmail = metadata?.customer_email;
 
     if (!orderId) {
-      console.log('No order_id in payment metadata');
       return;
     }
 
-    // Mettre à jour le statut de la commande avec raison d'échec
     const failureReason = paymentIntent.last_payment_error?.message || 'Raison inconnue';
     await base44.asServiceRole.entities.Order.update(orderId, {
       payment_status: 'failed',
       payment_failure_reason: failureReason
     });
 
-    // Envoyer une notification au client
     if (customerEmail) {
       await base44.integrations.Core.SendEmail({
         to: customerEmail,
@@ -132,8 +118,6 @@ async function handlePaymentFailed(paymentIntent, base44) {
         body: `Votre paiement n'a pas pu être traité: ${failureReason}. Veuillez réessayer ou contacter notre support.`
       });
     }
-
-    console.log(`Payment failed for order: ${orderId}, reason: ${failureReason}`);
   } catch (error) {
     console.error('Error handling payment failed:', error);
   }
@@ -146,11 +130,9 @@ async function handleRefund(charge, base44) {
     const customerEmail = metadata?.customer_email;
 
     if (!orderId || !refunded) {
-      console.log('No order_id or charge not refunded');
       return;
     }
 
-    // Créer une transaction de remboursement
     if (customerEmail) {
       await base44.asServiceRole.entities.WalletTransaction.create({
         customer_email: customerEmail,
@@ -160,15 +142,12 @@ async function handleRefund(charge, base44) {
         admin_email: 'stripe@webhook'
       });
 
-      // Envoyer une notification au client
       await base44.integrations.Core.SendEmail({
         to: customerEmail,
         subject: '💰 Remboursement traité - AfriGo',
         body: `Un remboursement de ${amount_refunded / 100}€ a été traité pour la commande #${orderId}.`
       });
     }
-
-    console.log(`Refund processed for order: ${orderId}, amount: ${amount_refunded / 100}€`);
   } catch (error) {
     console.error('Error handling refund:', error);
   }

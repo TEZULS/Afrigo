@@ -1,0 +1,16 @@
+node_modules/
+.expo/
+dist/
+web-build/
+.env
+.env.local
+.env.production
+ios/
+android/
+*.log
+.DS_Store
+secrets/
+
+# Signature Android release (si android/ est versionné)
+*.keystore
+**/android/keystore.properties

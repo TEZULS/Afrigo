@@ -9,7 +9,6 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Récupérer les paramètres de fidélité
     const loyaltySettings = await base44.entities.LoyaltySettings.list();
     const settings = loyaltySettings[0];
 
@@ -17,10 +16,9 @@ Deno.serve(async (req) => {
       return Response.json({ points: 0, message: 'Système de fidélité désactivé' });
     }
 
-    // Calculer la date de début de la période
     const now = new Date();
     let periodStart = new Date();
-    
+
     if (settings.points_validity_unit === 'days') {
       periodStart.setDate(now.getDate() - settings.points_validity_duration);
     } else if (settings.points_validity_unit === 'weeks') {
@@ -29,28 +27,23 @@ Deno.serve(async (req) => {
       periodStart.setMonth(now.getMonth() - settings.points_validity_duration);
     }
 
-    // Récupérer toutes les commandes livrées de l'utilisateur dans la période
     const allOrders = await base44.entities.Order.filter({
       customer_email: user.email,
       status: 'delivered'
     });
 
-    // Filtrer les commandes dans la période
     const ordersInPeriod = allOrders.filter(order => {
       const deliveredDate = new Date(order.delivered_date);
       return deliveredDate >= periodStart && deliveredDate <= now;
     });
 
-    // Calculer le montant total dépensé
     const totalSpent = ordersInPeriod.reduce((sum, order) => sum + (order.total_amount || 0), 0);
 
-    // Calculer les points
     let points = 0;
     if (totalSpent >= settings.min_purchase_amount) {
       points = Math.floor(totalSpent * settings.points_per_euro);
     }
 
-    // Calculer la date d'expiration
     const expiresAt = new Date();
     if (settings.points_validity_unit === 'days') {
       expiresAt.setDate(expiresAt.getDate() + settings.points_validity_duration);

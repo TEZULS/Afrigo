@@ -1,13 +1,11 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
-// Convertir une quantité d'une unité vers l'unité de stock du produit
 function convertToStockUnit(quantity, fromUnit, stockUnit) {
   if (!fromUnit || !stockUnit) return quantity;
 
   const fromLower = fromUnit.toLowerCase().trim();
   const stockLower = stockUnit.toLowerCase().trim();
 
-  // Même unité → pas de conversion
   if (fromLower === stockLower) return quantity;
 
   const weightUnits = { 'g': 1, 'gramme': 1, 'grammes': 1, 'kg': 1000, 'kilo': 1000, 'kilogramme': 1000, 'kilogrammes': 1000 };
@@ -23,7 +21,7 @@ function convertToStockUnit(quantity, fromUnit, stockUnit) {
   return quantity;
 }
 
-// Extraire valeur numérique et unité depuis une chaîne comme "500g", "1kg", "2 litres"
+// Parses values like "500g", "1kg", "2 litres" into { amount, unit }.
 function parseVariantValue(value) {
   if (!value) return null;
   const match = value.match(/^([\d.,]+)\s*([a-zA-Zéè]+)$/);
@@ -53,14 +51,12 @@ Deno.serve(async (req) => {
       if (!product) continue;
 
       const stockUnit = product.stock_unit || 'unite';
-      let globalDeduction = item.quantity; // déduction stock global par défaut
+      let globalDeduction = item.quantity;
       let updatedVariants = product.variants ? [...product.variants] : null;
       let variantMatched = false;
 
-      // Si le client a sélectionné des variantes
       if (item.selected_variants && product.variants && product.variants.length > 0) {
         for (const [, variantData] of Object.entries(item.selected_variants)) {
-          // Trouver la variante correspondante dans le produit
           const variantIndex = product.variants.findIndex(v =>
             v.type === variantData.type && v.value === variantData.value
           );
@@ -68,7 +64,6 @@ Deno.serve(async (req) => {
           if (variantIndex === -1) continue;
           const productVariant = product.variants[variantIndex];
 
-          // Calculer la quantité à déduire du stock global
           const parsed = parseVariantValue(productVariant.value);
           if (parsed && ['poids', 'pack', 'lot'].includes(productVariant.type)) {
             const converted = convertToStockUnit(parsed.amount, parsed.unit, stockUnit);
@@ -77,7 +72,6 @@ Deno.serve(async (req) => {
             globalDeduction = item.quantity;
           }
 
-          // Si la variante a son propre stock_quantity, le déduire aussi
           if (typeof productVariant.stock_quantity === 'number') {
             const newVariantStock = Math.max(0, productVariant.stock_quantity - item.quantity);
             updatedVariants[variantIndex] = {
@@ -91,11 +85,9 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Mettre à jour le stock global du produit
       const newGlobalStock = Math.max(0, product.stock_quantity - globalDeduction);
       const updatePayload = { stock_quantity: newGlobalStock };
 
-      // Si des variantes ont été mises à jour, les sauvegarder aussi
       if (variantMatched && updatedVariants) {
         updatePayload.variants = updatedVariants;
       }
