@@ -1,11 +1,9 @@
-import { format, formatDistanceToNow, parseISO } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { parseServerDate } from './serverDate';
 
-const safeDate = (value: string | number | Date): Date => {
-  if (value instanceof Date) return value;
-  if (typeof value === 'number') return new Date(value);
-  return parseISO(value);
-};
+/** Les dates serveur sans fuseau sont en UTC — cf. `parseServerDate`. */
+const safeDate = (value: string | number | Date): Date => parseServerDate(value);
 
 export const formatPrice = (value: number | string | undefined | null): string => {
   if (value === null || value === undefined) return '0,00 €';
