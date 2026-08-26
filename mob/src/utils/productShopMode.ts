@@ -1,12 +1,13 @@
-/** Règle identique au web (`src/pages/Home.jsx`) pour le catalogue. */
-export const COSMETIQUE_CATEGORY_IDS = ['cosmetique'] as const;
+/** Règle identique au web déployé pour le catalogue (rayon Alimentation / Cosmétiques). */
+import { COSMETIQUE_CATEGORY_IDS, isCosmetiqueCategory } from '@/utils/categories';
+
+export { COSMETIQUE_CATEGORY_IDS };
 
 /** Produit inclus dans la zone sous le sélecteur Alimentation / Cosmétiques. */
 export function passesShopMode(
   product: { category?: string | null },
   mode: 'food' | 'cosmetique',
 ): boolean {
-  const cat = product.category ?? '';
-  if (mode === 'cosmetique') return (COSMETIQUE_CATEGORY_IDS as readonly string[]).includes(cat);
-  return !(COSMETIQUE_CATEGORY_IDS as readonly string[]).includes(cat);
+  const cosmetique = isCosmetiqueCategory(product.category);
+  return mode === 'cosmetique' ? cosmetique : !cosmetique;
 }
