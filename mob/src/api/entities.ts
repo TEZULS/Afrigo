@@ -16,6 +16,7 @@ export const auth = () => getBase44().auth;
 
 // Raccourcis pour les entités les plus utilisées (cf. audit)
 export const Product = () => entities().Product;
+export const Recipe = () => entities().Recipe;
 export const Order = () => entities().Order;
 export const CartItem = () => entities().CartItem;
 export const Review = () => entities().Review;
@@ -39,6 +40,8 @@ export const FreeProductClaim = () => entities().FreeProductClaim;
 export const TierBenefit = () => entities().TierBenefit;
 export const WelcomeMessage = () => entities().WelcomeMessage;
 export const AdminPermissions = () => entities().AdminPermissions;
+export const AppNotification = () => entities().AppNotification;
+export const NotificationRead = () => entities().NotificationRead;
 export const NotificationSettings = () => entities().NotificationSettings;
 export const NotificationTemplate = () => entities().NotificationTemplate;
 export const ProductRequest = () => entities().ProductRequest;
@@ -60,6 +63,8 @@ export type Base44FunctionName =
   | 'sendOrderNotification'
   | 'sendOrderStatusEmail'
   | 'sendNotDeliveredNotification'
+  | 'pushAppNotification'
+  | 'dispatchPushNotifications'
   | 'sendCustomInvitation'
   | 'handleCustomAuth'
   | 'addLoyaltyPointsOnDelivery'
@@ -73,15 +78,45 @@ export type Base44FunctionName =
   | 'testStripeConnection'
   | 'webhookStripe';
 
+/**
+ * Le client axios des fonctions du SDK est créé avec `interceptResponses:
+ * false` : `functions.invoke()` renvoie la réponse HTTP complète
+ * (`{ data, status, headers, config }`) et non le corps JSON — à l'inverse
+ * des entités. Sans ce déballage, `createPaymentIntent` renvoyait un
+ * `clientSecret` introuvable et chaque paiement par carte échouait avec
+ * « One of `paymentIntentClientSecret`… is required ».
+ */
+const unwrapFunctionResponse = <T>(res: unknown): T => {
+  if (
+    res != null &&
+    typeof res === 'object' &&
+    'data' in res &&
+    'status' in res &&
+    'headers' in res &&
+    'config' in res
+  ) {
+    return (res as { data: T }).data;
+  }
+  return res as T;
+};
+
 export const invokeFunction = async <T = unknown>(
   name: Base44FunctionName,
   payload?: Record<string, unknown>,
 ): Promise<T> => {
-  const fn = (functions() as unknown as Record<string, (p?: unknown) => Promise<T>>)[name];
-  if (!fn) {
-    throw new Error(`Base44 function "${name}" introuvable.`);
+  const mod = functions() as unknown as {
+    invoke?: (name: string, p?: unknown) => Promise<unknown>;
+  } & Record<string, ((p?: unknown) => Promise<unknown>) | undefined>;
+
+  // Le SDK n'expose pas (encore) une méthode par fonction : `invoke(name, ...)`
+  // est la forme portable. On garde l'accès direct au cas où une version future
+  // reviendrait à un proxy nommé.
+  const direct = mod[name];
+  if (typeof direct === 'function') return unwrapFunctionResponse<T>(await direct(payload));
+  if (typeof mod.invoke === 'function') {
+    return unwrapFunctionResponse<T>(await mod.invoke(name, payload));
   }
-  return fn(payload);
+  throw new Error(`Base44 function "${name}" introuvable.`);
 };
 
 // Intégrations Core (mêmes signatures que côté web ; SendSMS n'est pas exposé
