@@ -3,18 +3,10 @@
  */
 import type { CartLine } from '@/stores/cart';
 import { CartItem } from '@/api/entities';
+import { selectedVariantsPayload, sameSelectedVariants } from '@/utils/selectedVariants';
 
-function variantsPayload(v: CartLine['variant']): Record<string, { type: string; value: string }> | null {
-  if (v?.type && v?.value) return { choice: { type: v.type, value: v.value } };
-  return null;
-}
-
-function sameVariants(
-  a: Record<string, unknown> | null | undefined,
-  b: Record<string, { type: string; value: string }> | null,
-): boolean {
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-}
+const variantsPayload = selectedVariantsPayload;
+const sameVariants = sameSelectedVariants;
 
 /** Après `cart.add` / +1 : crée ou met à jour un CartItem côté API. */
 export async function remoteUpsertAfterAdd(

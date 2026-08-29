@@ -84,6 +84,39 @@ describe('remoteUpsertAfterAdd', () => {
     expect(cartItemEntity().create).toHaveBeenCalled();
     expect(cartItemEntity().update).not.toHaveBeenCalled();
   });
+
+  it('crée la ligne avec le format `selected_variants` attendu par base44', async () => {
+    cartItemEntity().filter.mockResolvedValue([]);
+    const variant = { type: 'poids', value: '500g', price_modifier: 2.49 };
+    await remoteUpsertAfterAdd('u@x.fr', {
+      productId: 'p1',
+      name: 'A',
+      unitPrice: 7.49,
+      variant,
+    });
+    expect(cartItemEntity().create).toHaveBeenCalledWith(
+      expect.objectContaining({ selected_variants: { single: variant } }),
+    );
+  });
+
+  /*
+    Une ligne créée par l'ancienne version du mobile (clé `choice`) ou par le
+    web (clé `single`) désigne la même variante : on incrémente au lieu de
+    créer un doublon.
+  */
+  it('incrémente une ligne existante quelle que soit la clé utilisée', async () => {
+    cartItemEntity().filter.mockResolvedValue([
+      { id: 'a', quantity: 2, selected_variants: { choice: { type: 'poids', value: '500g' } } },
+    ]);
+    await remoteUpsertAfterAdd('u@x.fr', {
+      productId: 'p1',
+      name: 'A',
+      unitPrice: 7.49,
+      variant: { type: 'poids', value: '500g', price_modifier: 2.49 },
+    });
+    expect(cartItemEntity().update).toHaveBeenCalledWith('a', { quantity: 3 });
+    expect(cartItemEntity().create).not.toHaveBeenCalled();
+  });
 });
 
 describe('remoteDecrementAfterRemove', () => {
