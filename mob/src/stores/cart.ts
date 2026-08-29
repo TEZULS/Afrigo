@@ -3,13 +3,30 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { STORAGE_KEYS } from '@/services/storage';
 
+/**
+ * Variante telle que base44 la stocke dans `Product.variants` — on conserve
+ * l'objet complet dans la ligne de panier car c'est lui qui est renvoyé tel
+ * quel dans `CartItem.selected_variants` / `Order.items[].selected_variants`
+ * (le back-office et la fonction `updateStockAfterOrder` y cherchent `type`,
+ * `value` et le stock de la variante).
+ */
+export interface CartVariant {
+  type?: string;
+  value?: string;
+  price_modifier?: number | null;
+  promotion_price?: number | null;
+  image_url?: string;
+  stock_quantity?: number;
+  color_code?: string | null;
+}
+
 export interface CartLine {
   productId: string;
   name: string;
   imageUrl?: string;
   unitPrice: number;
   quantity: number;
-  variant?: { type?: string; value?: string } | null;
+  variant?: CartVariant | null;
   category?: string;
   unit?: string;
 }
@@ -35,6 +52,13 @@ interface CartState {
   count: () => number;
   total: () => number;
 }
+
+/**
+ * Clé stable d'une ligne (produit + variante) — sert à la sélection dans le
+ * panier et à ne commander que les lignes cochées.
+ */
+export const cartLineKey = (line: Pick<CartLine, 'productId' | 'variant'>): string =>
+  `${line.productId}-${line.variant?.value ?? ''}`;
 
 const sameLine = (a: CartLine, productId: string, variantValue?: string | null): boolean =>
   a.productId === productId && (a.variant?.value ?? null) === (variantValue ?? null);
