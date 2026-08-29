@@ -8,7 +8,7 @@
  * mock global défini dans `jest.setup.js`.
  */
 import { useCart } from '@/stores/cart';
-import { syncCartWithServerAfterLogin } from '../cartServerSync';
+import { consumeOrderedLines, syncCartWithServerAfterLogin } from '../cartServerSync';
 import { getBase44 } from '@/api/base44Client';
 
 type Spy = jest.Mock;
@@ -82,5 +82,56 @@ describe('syncCartWithServerAfterLogin', () => {
     const ci = cartItemEntity();
     expect(ci.create).not.toHaveBeenCalled();
     expect(ci.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('consumeOrderedLines (commande d’une sélection du panier)', () => {
+  beforeEach(() => {
+    const ci = cartItemEntity();
+    ci.filter.mockReset();
+    ci.delete.mockReset();
+    useCart.getState().replaceLines([
+      { productId: 'p1', name: 'Bissap', unitPrice: 6.99, quantity: 1 },
+      { productId: 'p2', name: 'Attiéké', unitPrice: 3, quantity: 2 },
+      { productId: 'p2', name: 'Attiéké lot', unitPrice: 8, quantity: 1, variant: { type: 'lot', value: 'x3' } },
+    ]);
+  });
+
+  it('ne retire que les lignes cochées, en local et sur le serveur', async () => {
+    const ci = cartItemEntity();
+    ci.filter.mockImplementation(async (q: { product_id: string }) =>
+      q.product_id === 'p2'
+        ? [
+            { id: 'row-p2', selected_variants: null },
+            { id: 'row-p2-x3', selected_variants: { single: { type: 'lot', value: 'x3' } } },
+          ]
+        : [{ id: 'row-p1', selected_variants: null }],
+    );
+    ci.delete.mockResolvedValue({});
+
+    await consumeOrderedLines('salma@x.fr', ['p2-']);
+
+    const left = useCart.getState().lines.map((l) => `${l.productId}-${l.variant?.value ?? ''}`);
+    expect(left).toEqual(['p1-', 'p2-x3']);
+    expect(ci.delete).toHaveBeenCalledTimes(1);
+    expect(ci.delete).toHaveBeenCalledWith('row-p2');
+  });
+
+  it('vide tout le panier sans sélection', async () => {
+    const ci = cartItemEntity();
+    ci.filter.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
+    ci.delete.mockResolvedValue({});
+
+    await consumeOrderedLines('salma@x.fr', undefined);
+
+    expect(useCart.getState().lines).toEqual([]);
+    expect(ci.delete).toHaveBeenCalledTimes(2);
+  });
+
+  it('sans e-mail (invité), ne touche que le panier local', async () => {
+    const ci = cartItemEntity();
+    await consumeOrderedLines(undefined, ['p1-']);
+    expect(useCart.getState().lines.map((l) => l.productId)).toEqual(['p2', 'p2']);
+    expect(ci.delete).not.toHaveBeenCalled();
   });
 });
