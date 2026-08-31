@@ -121,4 +121,5 @@ export const STORAGE_KEYS = {
   ONBOARDING_DONE: 'onboarding_done',
   THEME_MODE: 'theme_mode',
   PUSH_TOKEN: 'expo_push_token',
+  SEARCH_HISTORY: 'search_history',
 } as const;
