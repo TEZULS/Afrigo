@@ -8,6 +8,7 @@ import {
   ViewStyle,
   Platform,
   Pressable,
+  type LayoutChangeEvent,
 } from 'react-native';
 import { X, Eye, EyeOff } from 'lucide-react-native';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -22,6 +23,12 @@ export interface InputProps extends TextInputProps {
   /** Affiche un bouton ❌ pour effacer le contenu quand l'input est focus + non vide.
    *  Désactivé par défaut sur les inputs `secureTextEntry` (mots de passe). */
   showClear?: boolean;
+  /**
+   * `onLayout` du conteneur (label + champ + message d'erreur), et non du
+   * `TextInput` interne. Permet aux formulaires de connaître la position du
+   * champ dans leur ScrollView pour le remonter au-dessus du clavier.
+   */
+  onContainerLayout?: (e: LayoutChangeEvent) => void;
 }
 
 export const Input = forwardRef<TextInput, InputProps>(
@@ -33,6 +40,7 @@ export const Input = forwardRef<TextInput, InputProps>(
       leftIcon,
       rightIcon,
       containerStyle,
+      onContainerLayout,
       style,
       placeholderTextColor,
       showClear,
@@ -71,7 +79,7 @@ export const Input = forwardRef<TextInput, InputProps>(
     };
 
     return (
-      <View style={[styles.wrapper, containerStyle]}>
+      <View style={[styles.wrapper, containerStyle]} onLayout={onContainerLayout}>
         {label ? <Text style={[styles.label, { color: colors.foreground }]}>{label}</Text> : null}
         <View
           style={[
