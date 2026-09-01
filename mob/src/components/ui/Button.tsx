@@ -63,10 +63,11 @@ export const Button: React.FC<ButtonProps> = ({
   const s = sizing[size];
 
   /**
-   * On évite le `style={({pressed}) => ...}` : avec Fabric/New Architecture sur
-   * Android, le `backgroundColor` n'est pas réappliqué au premier rendu, ce qui
-   * rendait certains boutons (primary, brand, destructive) invisibles bien que
-   * cliquables. On utilise un style statique + `android_ripple` pour le feedback.
+   * On évite le `style={({pressed}) => ...}` : le `cssInterop` de NativeWind
+   * (JSX compilé avec `jsxImportSource: 'nativewind'`) remplace un style
+   * fonction par `{}`, ce qui rendait certains boutons (primary, brand,
+   * destructive) invisibles bien que cliquables — cf. `@/components/ui/Pressable`.
+   * On utilise un style statique + `android_ripple` pour le feedback.
    */
   return (
     <Pressable
