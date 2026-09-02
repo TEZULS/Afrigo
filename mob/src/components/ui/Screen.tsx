@@ -28,13 +28,24 @@ interface ScreenProps {
    */
   bottomBar?: React.ReactNode;
   /**
+   * Slot rendu en haut de l'écran, en dehors du ScrollView : reste affiché
+   * quel que soit le défilement (en-tête « toujours visible »). Reçoit le
+   * même `paddingHorizontal` que le contenu.
+   */
+  header?: React.ReactNode;
+  /**
    * Force un `behavior` actif pour le KeyboardAvoidingView, y compris sur
    * Android (par défaut on laisse `adjustResize` faire le travail). À
    * activer pour les formulaires avec beaucoup de champs en bas (Login,
    * Register, ProfileEdit) sinon les inputs du bas sont masqués par le
    * clavier malgré le scroll.
+   *
+   * `'none'` désactive complètement le KeyboardAvoidingView : à utiliser
+   * quand l'écran gère lui-même l'évitement du clavier (par exemple un
+   * ScrollView interne en `automaticallyAdjustKeyboardInsets`), sinon les
+   * deux mécanismes se cumulent.
    */
-  keyboardBehavior?: 'padding' | 'height' | 'position';
+  keyboardBehavior?: 'padding' | 'height' | 'position' | 'none';
   keyboardVerticalOffset?: number;
 }
 
@@ -48,6 +59,7 @@ export const Screen: React.FC<ScreenProps> = ({
   edges = ['top', 'left', 'right'],
   bg,
   bottomBar,
+  header,
   keyboardBehavior,
   keyboardVerticalOffset,
 }) => {
@@ -83,10 +95,13 @@ export const Screen: React.FC<ScreenProps> = ({
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={
-          keyboardBehavior ?? (Platform.OS === 'ios' ? 'padding' : undefined)
+          keyboardBehavior === 'none'
+            ? undefined
+            : (keyboardBehavior ?? (Platform.OS === 'ios' ? 'padding' : undefined))
         }
         keyboardVerticalOffset={keyboardVerticalOffset}
       >
+        {header ? <View style={{ paddingHorizontal }}>{header}</View> : null}
         <Wrapper {...(wrapperProps as object)}>{children}</Wrapper>
         {bottomBar}
       </KeyboardAvoidingView>
