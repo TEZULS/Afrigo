@@ -50,6 +50,8 @@ export const palette = {
   orange: {
     50: '#FFF7ED',
     100: '#FFEDD5',
+    200: '#FED7AA',
+    300: '#FDBA74',
     400: '#FB923C',
     500: '#F97316',
     600: '#EA580C',
@@ -59,9 +61,21 @@ export const palette = {
 
   rose: {
     50: '#FFF1F2',
+    100: '#FFE4E6',
+    200: '#FECDD3',
     400: '#FB7185',
     500: '#F43F5E',
     600: '#E11D48',
+    700: '#BE123C',
+  },
+
+  /** Violet du portefeuille (web : `bg-purple-50` / `text-purple-700`). */
+  purple: {
+    50: '#FAF5FF',
+    100: '#F3E8FF',
+    200: '#E9D5FF',
+    600: '#9333EA',
+    700: '#7E22CE',
   },
 
   red: {
