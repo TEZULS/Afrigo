@@ -38,9 +38,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
         <View style={styles.container}>
           <Text style={styles.title}>Une erreur inattendue s'est produite</Text>
           <Text style={styles.message}>{this.state.error.message}</Text>
-          <ScrollView style={styles.stack}>
-            <Text style={styles.stackText}>{this.state.error.stack}</Text>
-          </ScrollView>
+          {__DEV__ && this.state.error.stack ? (
+            <ScrollView style={styles.stack}>
+              <Text style={styles.stackText}>{this.state.error.stack}</Text>
+            </ScrollView>
+          ) : null}
           <Pressable onPress={this.handleReload} style={styles.button}>
             <Text style={styles.buttonText}>Recharger l'application</Text>
           </Pressable>
