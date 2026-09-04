@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { Pressable } from '@/components/ui/Pressable';
 import { Image } from 'expo-image';
 import { Plus, Minus, ShoppingBag, Percent, Users } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -8,35 +9,26 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { Badge } from '@/components/ui/Badge';
 import { palette } from '@/theme/tokens';
 import type { RootStackParamList } from '@/navigation/types';
-
-const categoryLabels: Record<string, string> = {
-  fruits_legumes: 'Fruits & Légumes',
-  viandes_poissons: 'Viandes & Poissons',
-  produits_laitiers: 'Produits Laitiers',
-  epices: 'Épices',
-  boissons: 'Boissons',
-  surgeles: 'Surgelés',
-  hygiene: 'Hygiène',
-  entretien: 'Entretien',
-  cosmetique: 'Cosmétique',
-  sec: 'Sec',
-  frais: 'Frais',
-};
-
-const unitLabels: Record<string, string> = {
-  piece: 'pièce',
-  kg: 'kg',
-  litre: 'L',
-  pack: 'pack',
-  unite: 'unité',
-};
+import { CATEGORY_LABELS } from '@/utils/categories';
+import { unitLabel } from '@/utils/units';
+import {
+  catalogPrice,
+  hasPromotion,
+  promotionDiscountPercent,
+  sellingPrice,
+  splitPrice,
+} from '@/utils/productPricing';
 
 export interface ProductDTO {
   id: string;
   name: string;
   category?: string;
   unit?: string;
+  /** Prix HT quand `vat_rate` est renseigné, sinon prix client (produits anciens). */
   price: number;
+  /** Prix TTC calculé par l'admin — c'est lui qui est affiché et facturé. */
+  price_ttc?: number | null;
+  vat_rate?: number | null;
   promotion_price?: number;
   is_promotion?: boolean;
   image_url?: string;
@@ -45,6 +37,10 @@ export interface ProductDTO {
   purchase_count?: number;
   purchase_count_message?: string;
   variants?: { value?: string; image_url?: string }[];
+  /** Produit masqué du catalogue quand `false` (base44 `Product.is_active`). */
+  is_active?: boolean;
+  /** Niveaux de fidélité autorisés à acheter — vide/absent = tous. */
+  allowed_tiers?: string[];
 }
 
 interface ProductCardProps {
@@ -64,19 +60,21 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const isOutOfStock = (product.stock_quantity ?? 0) <= 0;
-  const isPromotion = Boolean(product.is_promotion && product.promotion_price);
-  const displayPrice = isPromotion ? (product.promotion_price as number) : product.price;
-  const discount = isPromotion
-    ? Math.round((1 - (product.promotion_price as number) / product.price) * 100)
-    : 0;
+  // Au moins une variante : le choix est obligatoire, on renvoie vers la fiche produit
+  // (même règle que le web déployé — sinon la variante et son `price_modifier` sont ignorés).
+  const requiresVariantChoice = (product.variants?.length ?? 0) > 0;
+  const isPromotion = hasPromotion(product);
+  // Prix TTC (`price_ttc` dès que la TVA est renseignée, sinon `price`).
+  const basePrice = catalogPrice(product);
+  const displayPrice = sellingPrice(product);
+  const discount = promotionDiscountPercent(product);
 
   const imgUri =
     product.image_url ??
     product.variants?.find((v) => v.image_url)?.image_url ??
     'https://images.unsplash.com/photo-1543168256-418811576931?w=400';
 
-  const intPart = Math.floor(displayPrice);
-  const decPart = String((displayPrice % 1).toFixed(2)).split('.')[1];
+  const { int: intPart, dec: decPart } = splitPrice(displayPrice);
 
   return (
     <Pressable
@@ -109,7 +107,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       <View style={styles.content}>
         {(() => {
           const raw = (
-            categoryLabels[product.category ?? ''] ??
+            CATEGORY_LABELS[product.category ?? ''] ??
             product.category ??
             ''
           ).trim();
@@ -137,13 +135,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <Text style={[styles.priceInt, { color: colors.foreground }]}>{intPart}</Text>
           <Text style={[styles.priceDec, { color: colors.foreground }]}>.{decPart}</Text>
           <Text style={[styles.currency, { color: colors.foreground }]}> €</Text>
-          <Text style={[styles.unit, { color: colors.mutedForeground }]}>
-            / {unitLabels[product.unit ?? ''] ?? 'unité'}
-          </Text>
+          {unitLabel(product.unit) ? (
+            <Text style={[styles.unit, { color: colors.mutedForeground }]}>
+              / {unitLabel(product.unit)}
+            </Text>
+          ) : null}
         </View>
         {isPromotion ? (
           <Text style={[styles.priceStrike, { color: colors.mutedForeground }]}>
-            {product.price.toFixed(2)} €
+            {basePrice.toFixed(2)} €
           </Text>
         ) : null}
 
@@ -151,17 +151,23 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <View style={[styles.btnDisabled, { backgroundColor: palette.slate[100], borderColor: palette.slate[200] }]}>
             <Text style={{ color: palette.slate[400], fontWeight: '700' }}>Épuisé</Text>
           </View>
-        ) : cartQuantity === 0 ? (
+        ) : cartQuantity === 0 || requiresVariantChoice ? (
           <Pressable
             onPress={(e) => {
               e?.stopPropagation?.();
+              if (requiresVariantChoice) {
+                nav.navigate('ProductDetails', { id: product.id });
+                return;
+              }
               onAddToCart(product);
             }}
             android_ripple={{ color: 'rgba(255,255,255,0.18)' }}
             style={[styles.addBtn, { backgroundColor: palette.brand.green }]}
           >
             <ShoppingBag size={16} color="#FFF" />
-            <Text style={styles.addBtnText}>Ajouter</Text>
+            <Text style={styles.addBtnText}>
+              {requiresVariantChoice ? 'Choisir' : 'Ajouter'}
+            </Text>
           </Pressable>
         ) : (
           <View
