@@ -33,6 +33,11 @@ export const env = {
     publishableKey: read('EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY'),
     merchantId: 'merchant.app.afrigo.mobile',
   },
+  google: {
+    webClientId: read('EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID'),
+    iosClientId: read('EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID'),
+    androidClientId: read('EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID'),
+  },
   app: {
     baseUrl: read('EXPO_PUBLIC_APP_BASE_URL', 'https://afrigo.app'),
     env: (read('EXPO_PUBLIC_ENV', 'development') as AppEnv),
