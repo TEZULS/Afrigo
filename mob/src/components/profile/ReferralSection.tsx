@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Share, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Share } from 'react-native';
+import { Pressable } from '@/components/ui/Pressable';
 import * as Clipboard from 'expo-clipboard';
 import { Gift, Copy, Check, Users, AlertCircle, Share2, ThumbsUp } from 'lucide-react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -17,6 +18,7 @@ import {
   entities,
 } from '@/api/entities';
 import { getBase44 } from '@/api/base44Client';
+import { userErrorMessage } from '@/lib/userErrors';
 
 interface ReferralSettingsData {
   referrer_bonus?: number;
@@ -166,8 +168,9 @@ export const ReferralSection: React.FC<ReferralSectionProps> = ({ user }) => {
       }, 3000);
     },
     onError: (error: Error) => {
-      setErrorMessage(error.message || 'Le code est invalide');
-      toast.error('Code invalide', error.message);
+      const message = userErrorMessage(error, 'Ce code de parrainage n’est pas valide.');
+      setErrorMessage(message);
+      toast.error('Code invalide', message);
       setTimeout(() => setErrorMessage(''), 4000);
     },
   });
