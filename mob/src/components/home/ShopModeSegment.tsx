@@ -1,13 +1,13 @@
 import React from 'react';
 import {
   Image,
-  Pressable,
   Text,
   StyleSheet,
   View,
   useWindowDimensions,
   Platform,
 } from 'react-native';
+import { Pressable } from '@/components/ui/Pressable';
 
 /** Identique aux URLs `Home.jsx`. */
 export const SHOP_MODE_IMG_FOOD =
@@ -35,9 +35,9 @@ interface ShopModeSegmentProps {
  */
 export const ShopModeSegment: React.FC<ShopModeSegmentProps> = ({ mode, onChange }) => {
   const { width: ww } = useWindowDimensions();
-  // Compact : l'encadré « Bienvenue sur AfriGo » prend la place principale,
-  // ce segment doit rester discret.
-  const img = Math.min(30, Math.max(22, Math.round(ww * 0.07)));
+  // Compact, même gabarit que la pastille du web déployé : ~44 px de haut,
+  // vignette 24 px, pas de pleine largeur.
+  const img = Math.min(26, Math.max(20, Math.round(ww * 0.06)));
   const fs = ww < 340 ? 11 : ww < 400 ? 12 : 13;
   const lineH = Math.round(fs * 1.3);
 
@@ -143,13 +143,13 @@ function SegmentItem({
   );
 }
 
-const OUT_RADIUS = 16;
-const INNER_RADIUS = 12;
+const OUT_RADIUS = 999;
+const INNER_RADIUS = 999;
 
 const styles = StyleSheet.create({
   wrapOuter: {
     width: '100%',
-    maxWidth: 520,
+    maxWidth: 360,
     alignSelf: 'center',
   },
   track: {
@@ -159,14 +159,14 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: TRACK,
     borderRadius: OUT_RADIUS,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    paddingHorizontal: 3,
+    paddingVertical: 3,
   },
   slot: {
     flexGrow: 1,
     flexShrink: 1,
     flexBasis: 0,
-    minHeight: 56,
+    minHeight: 40,
     justifyContent: 'center',
   },
   pressable: {
@@ -179,12 +179,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
     borderRadius: INNER_RADIUS,
-    minHeight: 52,
+    minHeight: 38,
     width: '100%',
-    gap: 8,
+    gap: 6,
   },
   cardIdle: {
     backgroundColor: 'transparent',
