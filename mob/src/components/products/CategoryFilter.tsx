@@ -14,32 +14,14 @@ import { ChevronRight, ChevronLeft } from 'lucide-react-native';
 import { palette } from '@/theme/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
 
-const FOOD_CATS = [
-  'fruits_legumes',
-  'viandes_poissons',
-  'produits_laitiers',
-  'epices',
-  'boissons',
-  'surgeles',
-  'entretien',
-  'sec',
-  'frais',
-];
-const COSMETIQUE_CATS = ['cosmetique'];
+import {
+  CATEGORIES,
+  COSMETIQUE_CATEGORY_IDS,
+  FOOD_CATEGORY_IDS,
+} from '@/utils/categories';
 
-const CATEGORIES: { id: string; label: string; emoji: string }[] = [
-  { id: 'all', label: 'Tous', emoji: '🛒' },
-  { id: 'fruits_legumes', label: 'Fruits & Légumes', emoji: '🍎' },
-  { id: 'viandes_poissons', label: 'Viandes & Poissons', emoji: '🥩' },
-  { id: 'produits_laitiers', label: 'Produits Laitiers', emoji: '🥛' },
-  { id: 'epices', label: 'Épices', emoji: '🌶️' },
-  { id: 'boissons', label: 'Boissons', emoji: '🍷' },
-  { id: 'surgeles', label: 'Surgelés', emoji: '❄️' },
-  { id: 'entretien', label: 'Entretien', emoji: '🧹' },
-  { id: 'cosmetique', label: 'Cosmétique', emoji: '✨' },
-  { id: 'sec', label: 'Sec', emoji: '🌾' },
-  { id: 'frais', label: 'Frais', emoji: '🥬' },
-];
+/** Réexport historique : l'écran de recherche importe `CATEGORIES` d'ici. */
+export { CATEGORIES };
 
 const ITEM_WIDTH = 78;
 const SCROLL_STEP = 200;
@@ -65,13 +47,24 @@ export const CategoryFilter: React.FC<Props> = ({
   const [contentW, setContentW] = useState(0);
   const [viewportW, setViewportW] = useState(0);
 
-  const modeCats = shopMode === 'cosmetique' ? COSMETIQUE_CATS : FOOD_CATS;
+  const modeCats = shopMode === 'cosmetique' ? COSMETIQUE_CATEGORY_IDS : FOOD_CATEGORY_IDS;
+  /**
+   * Une catégorie n'est affichée que si le catalogue du mode courant contient
+   * au moins un produit dedans (même règle que le web). Sans ça, l'onglet
+   * « Cosmétiques » affichait la pastille « Cosmétique » alors qu'aucun
+   * produit n'existe encore.
+   */
   const visible = CATEGORIES.filter((c) => {
     if (c.id === 'all') return true;
     if (!modeCats.includes(c.id)) return false;
-    if (availableCategories.length === 0) return true;
     return availableCategories.includes(c.id);
   });
+
+  /**
+   * Si seule la pastille « Tous » subsiste, le filtre n'a plus aucun intérêt :
+   * on masque toute la barre (cas d'un mode sans aucun produit).
+   */
+  const hasRealCategories = visible.length > 1;
 
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     setScrollX(e.nativeEvent.contentOffset.x);
@@ -89,6 +82,8 @@ export const CategoryFilter: React.FC<Props> = ({
     const next = Math.max(0, Math.min(contentW - viewportW, scrollX + dir * SCROLL_STEP));
     scrollRef.current?.scrollTo({ x: next, animated: true });
   };
+
+  if (!hasRealCategories) return null;
 
   return (
     <View style={styles.wrap} onLayout={onLayout}>
