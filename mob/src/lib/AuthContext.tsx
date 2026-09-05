@@ -13,6 +13,13 @@ import { env } from '@/config/env';
 import { kv, STORAGE_KEYS } from '@/services/storage';
 import { syncCartWithServerAfterLogin } from '@/services/cartServerSync';
 import { useCart } from '@/stores/cart';
+import { invokeFunction } from '@/api/entities';
+import {
+  getAppleSignInPayload,
+  getGoogleSignInPayload,
+  isSocialAuthCancelled,
+  type SocialAuthPayload,
+} from '@/services/socialAuth';
 
 export type AuthUser = {
   id: string;
@@ -32,6 +39,37 @@ export type AuthError =
   | { type: 'account_disabled'; message: string }
   | { type: 'unknown'; message: string };
 
+/**
+ * Champs de profil saisis dans le formulaire d'inscription.
+ *
+ * `civility` / `firstName` / `lastName` composent l'état civil dont base44 a
+ * besoin : le web bloque le passage de commande tant que `civility`,
+ * `first_name`, `last_name`, `phone`, `address`, `postal_code` et `city` ne
+ * sont pas renseignés. On les collecte donc dès l'inscription.
+ */
+export interface RegisterProfile {
+  civility?: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  address?: string;
+  postalCode?: string;
+  city?: string;
+}
+
+/**
+ * Résultat d'une inscription.
+ *
+ * Base44 crée le compte puis envoie un code à 6 chiffres par email ; tant que
+ * ce code n'est pas validé, `POST /auth/login` répond « Invalid email or
+ * password ». L'échec de la connexion automatique n'est donc PAS un échec
+ * d'inscription : on le remonte via `verification_required` pour enchaîner sur
+ * la saisie du code, au lieu d'afficher « Inscription impossible ».
+ */
+export type RegisterOutcome =
+  | { status: 'signed_in' }
+  | { status: 'verification_required' };
+
 interface AuthContextValue {
   user: AuthUser | null;
   isAuthenticated: boolean;
@@ -41,25 +79,54 @@ interface AuthContextValue {
   appPublicSettings: Record<string, unknown> | null;
   /** Connexion email / mot de passe (API Base44 native, sans navigateur). */
   loginWithEmailPassword: (email: string, password: string) => Promise<void>;
-  /** Inscription puis connexion automatique si l’API ne demande pas d’OTP. */
-  registerWithEmailPassword: (params: {
+  /**
+   * Inscription, puis connexion automatique si l’API ne demande pas d’OTP.
+   * Renvoie `verification_required` quand le code email doit être saisi.
+   */
+  registerWithEmailPassword: (
+    params: { email: string; password: string } & RegisterProfile,
+  ) => Promise<RegisterOutcome>;
+  /** Valide le code à 6 chiffres reçu par email, puis connecte l’utilisateur. */
+  verifyEmailOtp: (params: {
     email: string;
-    password: string;
-    fullName?: string;
-    phone?: string;
-    address?: string;
-    postalCode?: string;
-    city?: string;
+    otpCode: string;
+    /** Permet la connexion automatique quand l’API ne renvoie pas de token. */
+    password?: string;
+    profile?: RegisterProfile;
   }) => Promise<void>;
+  /** Renvoie un nouveau code de vérification par email. */
+  resendEmailOtp: (email: string) => Promise<void>;
   /** OAuth / magic link via page web (fallback). */
   loginWithBase44: () => Promise<void>;
+  /** Sign in with Apple (natif iOS — requis App Store si Google est proposé). */
+  loginWithApple: () => Promise<void>;
+  /** Sign in with Google (natif). */
+  loginWithGoogle: () => Promise<void>;
   /** Demande de réinitialisation mot de passe (email Base44). */
   requestPasswordReset: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  /**
+   * Recharge silencieusement le profil (`auth.me()`) — solde du portefeuille,
+   * adresse… — sans repasser par `isLoadingAuth`, qui démonte le
+   * `NavigationContainer` et renvoie l'utilisateur à l'écran initial.
+   */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+interface OAuthLoginResponse {
+  access_token?: string;
+  error?: string;
+}
+
+const exchangeSocialLogin = async (payload: SocialAuthPayload): Promise<string> => {
+  const res = await invokeFunction<OAuthLoginResponse>('handleCustomAuth', payload);
+  if (res?.error) throw new Error(res.error);
+  if (!res?.access_token) throw new Error('Réponse de connexion invalide');
+  return res.access_token;
+};
 
 const buildLoginUrl = (returnUrl: string): string => {
   const base = `${env.app.baseUrl}`.replace(/\/$/, '');
@@ -194,47 +261,98 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [checkUserAuth],
   );
 
+  /** Pousse les champs du formulaire d'inscription sur le profil connecté. */
+  const applyRegisterProfile = useCallback(
+    async (profile: RegisterProfile | undefined) => {
+      if (!profile) return;
+      const profilePatch: Record<string, unknown> = {};
+      const first = profile.firstName?.trim();
+      const last = profile.lastName?.trim();
+      if (profile.civility?.trim()) profilePatch.civility = profile.civility.trim();
+      if (first) profilePatch.first_name = first;
+      if (last) profilePatch.last_name = last;
+      /*
+        `full_name` reste alimenté : c'est lui qu'affichent les écrans qui ne
+        connaissent pas encore `first_name`/`last_name` (admin, e-mails).
+      */
+      const fullName = [first, last].filter(Boolean).join(' ');
+      if (fullName) profilePatch.full_name = fullName;
+      if (profile.phone?.trim()) profilePatch.phone = profile.phone.trim();
+      if (profile.address?.trim()) profilePatch.address = profile.address.trim();
+      if (profile.postalCode?.trim()) profilePatch.postal_code = profile.postalCode.trim();
+      if (profile.city?.trim()) profilePatch.city = profile.city.trim();
+      if (Object.keys(profilePatch).length === 0) return;
+      try {
+        await getBase44().auth.updateMe(profilePatch);
+        await checkUserAuth();
+      } catch {
+        /* profil peut être mis à jour plus tard depuis « Mon compte » */
+      }
+    },
+    [checkUserAuth],
+  );
+
   const registerWithEmailPassword = useCallback(
+    async (
+      params: { email: string; password: string } & RegisterProfile,
+    ): Promise<RegisterOutcome> => {
+      setAuthError(null);
+      const trimmed = params.email.trim().toLowerCase();
+      const { email: _email, password, ...profile } = params;
+
+      // Une erreur ICI est un vrai échec d'inscription (email déjà pris,
+      // mot de passe trop court…) : on la laisse remonter à l'écran.
+      await getBase44().auth.register({ email: trimmed, password });
+
+      try {
+        await loginWithEmailPassword(trimmed, password);
+      } catch {
+        // Le compte EST créé et Base44 vient d'envoyer le code par email.
+        // La connexion ne passera qu'une fois l'email vérifié.
+        return { status: 'verification_required' };
+      }
+
+      await applyRegisterProfile(profile);
+      return { status: 'signed_in' };
+    },
+    [loginWithEmailPassword, applyRegisterProfile],
+  );
+
+  const verifyEmailOtp = useCallback(
     async (params: {
       email: string;
-      password: string;
-      fullName?: string;
-      phone?: string;
-      address?: string;
-      postalCode?: string;
-      city?: string;
+      otpCode: string;
+      password?: string;
+      profile?: RegisterProfile;
     }) => {
       setAuthError(null);
       const trimmed = params.email.trim().toLowerCase();
-      await getBase44().auth.register({
+      const res = (await getBase44().auth.verifyOtp({
         email: trimmed,
-        password: params.password,
-      });
-      await loginWithEmailPassword(trimmed, params.password);
-      // Pousser le profil saisi dans le formulaire d'inscription
-      const profilePatch: Record<string, unknown> = {};
-      const fn = params.fullName?.trim();
-      if (fn) {
-        profilePatch.full_name = fn;
-        const [first, ...rest] = fn.split(' ');
-        if (first) profilePatch.first_name = first;
-        if (rest.length > 0) profilePatch.last_name = rest.join(' ');
+        otpCode: params.otpCode.trim(),
+      })) as { access_token?: string } | undefined;
+
+      if (res?.access_token) {
+        await setBase44Token(res.access_token);
+        await checkUserAuth();
+      } else if (params.password) {
+        // L'API ne renvoie pas toujours de token : l'email étant vérifié,
+        // la connexion classique fonctionne désormais.
+        await loginWithEmailPassword(trimmed, params.password);
+      } else {
+        return;
       }
-      if (params.phone?.trim()) profilePatch.phone = params.phone.trim();
-      if (params.address?.trim()) profilePatch.address = params.address.trim();
-      if (params.postalCode?.trim()) profilePatch.postal_code = params.postalCode.trim();
-      if (params.city?.trim()) profilePatch.city = params.city.trim();
-      if (Object.keys(profilePatch).length > 0) {
-        try {
-          await getBase44().auth.updateMe(profilePatch);
-          await checkUserAuth();
-        } catch {
-          /* profil peut être mis à jour plus tard */
-        }
-      }
+
+      await applyRegisterProfile(params.profile);
     },
-    [loginWithEmailPassword, checkUserAuth],
+    [checkUserAuth, loginWithEmailPassword, applyRegisterProfile],
   );
+
+  const resendEmailOtp = useCallback(async (email: string) => {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed) throw new Error('Email requis');
+    await getBase44().auth.resendOtp(trimmed);
+  }, []);
 
   const requestPasswordReset = useCallback(async (email: string) => {
     const trimmed = email.trim().toLowerCase();
@@ -258,6 +376,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [checkUserAuth]);
 
+  const loginWithApple = useCallback(async () => {
+    setAuthError(null);
+    try {
+      const payload = await getAppleSignInPayload();
+      const token = await exchangeSocialLogin(payload);
+      await setBase44Token(token);
+      await checkUserAuth();
+    } catch (err) {
+      if (isSocialAuthCancelled(err)) return;
+      throw err;
+    }
+  }, [checkUserAuth]);
+
+  const loginWithGoogle = useCallback(async () => {
+    setAuthError(null);
+    try {
+      const payload = await getGoogleSignInPayload();
+      const token = await exchangeSocialLogin(payload);
+      await setBase44Token(token);
+      await checkUserAuth();
+    } catch (err) {
+      if (isSocialAuthCancelled(err)) return;
+      throw err;
+    }
+  }, [checkUserAuth]);
+
   const logout = useCallback(async () => {
     try {
       await getBase44().auth.logout();
@@ -277,6 +421,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (tokenStore.peek()) await checkUserAuth();
   }, [fetchAppPublicSettings, checkUserAuth]);
 
+  const refreshUser = useCallback(async () => {
+    if (!tokenStore.peek()) return;
+    try {
+      const me = (await getBase44().auth.me()) as AuthUser & { disabled?: boolean | null };
+      if (me && me.is_active !== false && me.disabled !== true) setUser(me);
+    } catch {
+      /* hors ligne / session expirée : on garde le profil en mémoire */
+    }
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -287,10 +441,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       appPublicSettings,
       loginWithEmailPassword,
       registerWithEmailPassword,
+      verifyEmailOtp,
+      resendEmailOtp,
       loginWithBase44,
+      loginWithApple,
+      loginWithGoogle,
       requestPasswordReset,
       logout,
       refresh,
+      refreshUser,
     }),
     [
       user,
@@ -301,10 +460,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       appPublicSettings,
       loginWithEmailPassword,
       registerWithEmailPassword,
+      verifyEmailOtp,
+      resendEmailOtp,
       loginWithBase44,
+      loginWithApple,
+      loginWithGoogle,
       requestPasswordReset,
       logout,
       refresh,
+      refreshUser,
     ],
   );
 
