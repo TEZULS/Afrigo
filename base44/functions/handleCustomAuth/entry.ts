@@ -1,9 +1,160 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
+const APPLE_BUNDLE_ID = 'app.afrigo.mobile';
+const APPLE_ISSUER = 'https://appleid.apple.com';
+const APPLE_JWKS_URL = 'https://appleid.apple.com/auth/keys';
+
+type AppleJwk = { kty: string; kid: string; n: string; e: string };
+type OAuthUserResult = { access_token: string; user: { email: string; full_name?: string } };
+
+let appleJwksCache: { keys: AppleJwk[]; fetchedAt: number } | null = null;
+
+function base64UrlDecode(str: string): Uint8Array {
+  const padded = str.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
+  const binary = atob(padded + pad);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function decodeJwtPart(part: string): Record<string, unknown> {
+  return JSON.parse(new TextDecoder().decode(base64UrlDecode(part)));
+}
+
+async function importRsaPublicKey(jwk: AppleJwk): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    'jwk',
+    { kty: 'RSA', n: jwk.n, e: jwk.e, alg: 'RS256', ext: true },
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['verify'],
+  );
+}
+
+async function getAppleJwks(): Promise<AppleJwk[]> {
+  const now = Date.now();
+  if (appleJwksCache && now - appleJwksCache.fetchedAt < 3_600_000) {
+    return appleJwksCache.keys;
+  }
+  const res = await fetch(APPLE_JWKS_URL);
+  if (!res.ok) throw new Error('Impossible de récupérer les clés Apple');
+  const data = await res.json();
+  appleJwksCache = { keys: data.keys, fetchedAt: now };
+  return data.keys;
+}
+
+async function verifyAppleIdentityToken(
+  identityToken: string,
+): Promise<{ sub: string; email?: string }> {
+  const parts = identityToken.split('.');
+  if (parts.length !== 3) throw new Error('Token Apple invalide');
+
+  const header = decodeJwtPart(parts[0]) as { alg: string; kid: string };
+  const payload = decodeJwtPart(parts[1]) as {
+    iss: string;
+    aud: string;
+    exp: number;
+    sub: string;
+    email?: string;
+  };
+
+  if (header.alg !== 'RS256') throw new Error('Algorithme Apple non supporté');
+  if (payload.iss !== APPLE_ISSUER) throw new Error('Émetteur Apple invalide');
+  if (payload.aud !== APPLE_BUNDLE_ID) throw new Error('Audience Apple invalide');
+  if (payload.exp * 1000 < Date.now()) throw new Error('Token Apple expiré');
+
+  const keys = await getAppleJwks();
+  const jwk = keys.find((k) => k.kid === header.kid);
+  if (!jwk) throw new Error('Clé Apple introuvable');
+
+  const key = await importRsaPublicKey(jwk);
+  const data = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+  const signature = base64UrlDecode(parts[2]);
+
+  const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, data);
+  if (!valid) throw new Error('Signature Apple invalide');
+
+  return { sub: payload.sub, email: payload.email };
+}
+
+function getGoogleClientIds(): string[] {
+  const raw = [
+    Deno.env.get('GOOGLE_CLIENT_IDS'),
+    Deno.env.get('EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID'),
+    Deno.env.get('EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID'),
+    Deno.env.get('EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID'),
+    Deno.env.get('EXPO_PUBLIC_GOOGLE_CLIENT_ID'),
+  ]
+    .filter(Boolean)
+    .flatMap((value) => value!.split(',').map((id) => id.trim()))
+    .filter(Boolean);
+
+  return [...new Set(raw)];
+}
+
+async function verifyGoogleIdToken(
+  idToken: string,
+): Promise<{ email: string; name?: string; sub: string }> {
+  const res = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`,
+  );
+  if (!res.ok) throw new Error('Token Google invalide');
+
+  const data = await res.json();
+  if (data.error || data.error_description) {
+    throw new Error(data.error_description || data.error);
+  }
+
+  const allowedAudiences = getGoogleClientIds();
+  if (allowedAudiences.length > 0 && !allowedAudiences.includes(data.aud)) {
+    throw new Error('Audience Google invalide');
+  }
+
+  const emailVerified = data.email_verified === true || data.email_verified === 'true';
+  if (!emailVerified) throw new Error('Email Google non vérifié');
+  if (!data.email) throw new Error('Email Google manquant');
+
+  return { email: data.email, name: data.name, sub: data.sub };
+}
+
+async function findOrCreateOAuthUser(
+  base44: ReturnType<typeof createClientFromRequest>,
+  email: string,
+  fullName?: string,
+): Promise<OAuthUserResult> {
+  let users = await base44.asServiceRole.entities.User.filter({ email });
+
+  if (users.length === 0) {
+    await base44.asServiceRole.users.inviteUser(email, 'user');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    users = await base44.asServiceRole.entities.User.filter({ email });
+  }
+
+  if (users.length === 0) {
+    throw new Error('Utilisateur non créé');
+  }
+
+  const user = users[0];
+  let resolvedFullName = user.full_name;
+
+  if (fullName && !user.full_name) {
+    await base44.asServiceRole.entities.User.update(user.id, { full_name: fullName });
+    resolvedFullName = fullName;
+  }
+
+  const { access_token } = await base44.asServiceRole.sso.getAccessToken(user.id);
+  return {
+    access_token,
+    user: { email: user.email, full_name: resolvedFullName },
+  };
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const { action, email, password, phone } = await req.json();
+    const body = await req.json();
+    const { action, email, password, phone } = body;
 
     if (action === 'check_exists') {
       const users = await base44.asServiceRole.entities.User.list();
@@ -69,6 +220,43 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (action === 'apple_login') {
+      const { identityToken, fullName, email: payloadEmail } = body;
+      if (!identityToken) {
+        return Response.json({ error: 'identityToken requis' }, { status: 400 });
+      }
+
+      try {
+        const claims = await verifyAppleIdentityToken(identityToken);
+        const resolvedEmail = claims.email || payloadEmail;
+        if (!resolvedEmail) {
+          return Response.json({ error: 'Email requis' }, { status: 400 });
+        }
+
+        const result = await findOrCreateOAuthUser(base44, resolvedEmail, fullName);
+        return Response.json(result);
+      } catch (error) {
+        console.error('Erreur apple_login:', error);
+        return Response.json({ error: error.message }, { status: 401 });
+      }
+    }
+
+    if (action === 'google_login') {
+      const { idToken } = body;
+      if (!idToken) {
+        return Response.json({ error: 'idToken requis' }, { status: 400 });
+      }
+
+      try {
+        const claims = await verifyGoogleIdToken(idToken);
+        const result = await findOrCreateOAuthUser(base44, claims.email, claims.name);
+        return Response.json(result);
+      } catch (error) {
+        console.error('Erreur google_login:', error);
+        return Response.json({ error: error.message }, { status: 401 });
+      }
+    }
+
     if (action === 'reset_password') {
       const users = await base44.asServiceRole.entities.User.list();
       const user = users.find(u => u.email === email);
@@ -117,7 +305,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'verify_reset_token') {
-      const { token } = await req.json();
+      const { token } = body;
       const users = await base44.asServiceRole.entities.User.list();
       const user = users.find(u => u.reset_token === token && new Date(u.reset_token_expiry) > new Date());
       
@@ -129,7 +317,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'update_password') {
-      const { token, newPassword } = await req.json();
+      const { token, newPassword } = body;
       const users = await base44.asServiceRole.entities.User.list();
       const user = users.find(u => u.reset_token === token && new Date(u.reset_token_expiry) > new Date());
       
