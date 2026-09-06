@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,75 +7,55 @@ import {
   ScrollView,
   Alert,
   Platform,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Toast from 'react-native-toast-message';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { AddressAutocomplete } from '@/components/ui/AddressAutocomplete';
 import { useTheme } from '@/theme/ThemeProvider';
-import { useAuth } from '@/lib/AuthContext';
+import { palette } from '@/theme/tokens';
+import { useAuth, type RegisterProfile } from '@/lib/AuthContext';
+import { CIVILITY_OPTIONS, type Civility } from '@/utils/civility';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
+import {
+  validateLoginForm,
+  validateRegisterForm,
+  validateOtpCode,
+  validateCivilStatus,
+  MIN_REGISTER_PASSWORD_LENGTH,
+  OTP_CODE_LENGTH,
+} from '@/screens/auth/loginValidation';
+import { SocialSignInButtons } from '@/screens/auth/SocialSignInButtons';
+import { useKeyboardAwareFields } from '@/hooks/useKeyboardAwareFields';
+import {
+  authErrorMessage,
+  isEmailAlreadyRegistered,
+  isEmailVerificationRequired,
+  isInvalidCredentials,
+} from '@/lib/authErrors';
+import type { AddressSuggestion } from '@/services/addressAutocomplete';
 
 const H_PAD = 24;
-/** Espace réservé sous le formulaire pour le bloc d’actions fixe (bouton + liens). */
-const FOOTER_BLOCK_MIN = 210;
 
-/** Extrait un message lisible depuis les erreurs Base44 / fetch. */
-function errText(e: unknown): string {
-  const x = e as {
-    response?: { data?: unknown };
-    message?: string;
-  };
-  const d = x.response?.data;
-  if (typeof d === 'string') return d;
-  if (d && typeof d === 'object') {
-    const o = d as Record<string, unknown>;
-    if (typeof o.message === 'string') return o.message;
-    if (typeof o.error === 'string') return o.error;
-    if (typeof o.detail === 'string') return o.detail;
-  }
-  return x.message ?? 'Une erreur est survenue';
-}
-
-function isEmailAlreadyRegistered(msg: string): boolean {
-  const m = msg.toLowerCase();
-  return (
-    m.includes('already exists') ||
-    m.includes('email already') ||
-    m.includes('user with this email') ||
-    m.includes('déjà utilisé') ||
-    m.includes('déjà enregistré') ||
-    m.includes('existe déjà')
-  );
-}
-
-/**
- * L'inscription Base44 réussit toujours — c'est l'auto-login juste après
- * qui échoue avec ce message tant que l'utilisateur n'a pas cliqué sur le
- * lien de confirmation de l'email. On veut afficher un succès dans ce cas
- * (compte bien créé), pas une erreur.
- */
-function isVerifyEmailRequired(msg: string): boolean {
-  const m = msg.toLowerCase();
-  return (
-    m.includes('verify your email') ||
-    m.includes('email before logging') ||
-    m.includes('vérifier votre email') ||
-    m.includes('email non vérifié') ||
-    m.includes('email not verified')
-  );
-}
+/** Délai avant de pouvoir redemander un code de vérification (secondes). */
+const RESEND_COOLDOWN_S = 45;
 
 type Mode = 'login' | 'register';
+/** `otp` = compte créé, en attente du code à 6 chiffres envoyé par email. */
+type Step = 'form' | 'otp';
 
 export const LoginScreen: React.FC = () => {
   const {
     loginWithEmailPassword,
     registerWithEmailPassword,
-    loginWithBase44,
+    verifyEmailOtp,
+    resendEmailOtp,
+    loginWithApple,
+    loginWithGoogle,
     requestPasswordReset,
   } = useAuth();
   const { colors } = useTheme();
@@ -84,6 +64,7 @@ export const LoginScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
 
   const [mode, setMode] = useState<Mode>('login');
+  const [step, setStep] = useState<Step>('form');
   useEffect(() => {
     const initial = route.params?.initialMode;
     if (initial === 'register' || initial === 'login') setMode(initial);
@@ -92,80 +73,151 @@ export const LoginScreen: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [fullName, setFullName] = useState('');
+  const [civility, setCivility] = useState<Civility | ''>('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [postalCode, setPostalCode] = useState('');
   const [city, setCity] = useState('');
+  const [otpCode, setOtpCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [civilityError, setCivilityError] = useState<string | null>(null);
+  const [firstNameError, setFirstNameError] = useState<string | null>(null);
+  const [lastNameError, setLastNameError] = useState<string | null>(null);
+  const [resendIn, setResendIn] = useState(0);
+
+  /** Profil saisi au formulaire, appliqué une fois l'email vérifié. */
+  const registerProfile = useCallback(
+    (): RegisterProfile => ({
+      civility: civility || undefined,
+      firstName: firstName.trim() || undefined,
+      lastName: lastName.trim() || undefined,
+      phone: phone.trim() || undefined,
+      address: address.trim() || undefined,
+      postalCode: postalCode.trim() || undefined,
+      city: city.trim() || undefined,
+    }),
+    [civility, firstName, lastName, phone, address, postalCode, city],
+  );
+
+  /** Décompte avant de pouvoir redemander un code. */
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendIn]);
+
+  /**
+   * Remontée automatique du champ en cours de saisie au-dessus du clavier.
+   *
+   * Le formulaire d'inscription est long (état civil → adresse) : sans cette
+   * mécanique, les derniers champs — et surtout la liste de suggestions
+   * d'adresse rendue juste en dessous — restent cachés derrière le clavier.
+   * `useKeyboardAwareFields` rejoue le défilement une fois le clavier
+   * réellement déployé, moment où la zone scrollable a sa hauteur définitive.
+   */
+  const scrollRef = useRef<ScrollView>(null);
+  const {
+    keyboardHeight,
+    onContainerLayout: onFieldsLayout,
+    onFieldLayout,
+    onFieldFocus: focusField,
+  } = useKeyboardAwareFields(scrollRef);
 
   const fg = colors.foreground;
   const muted = colors.mutedForeground;
   const border = colors.border;
 
-  const validateEmailPwd = (): string | null => {
-    const e = email.trim();
-    if (!e) return 'Saisissez votre email.';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return 'Email invalide.';
-    if (!password || password.length < 6) return 'Le mot de passe doit faire au moins 6 caractères.';
-    return null;
-  };
+  /** Commune choisie : remplit Ville + Code postal, qui filtrera l'adresse. */
+  const applyCitySuggestion = useCallback((s: AddressSuggestion) => {
+    if (s.city) setCity(s.city);
+    if (s.postalCode) setPostalCode(s.postalCode);
+    Keyboard.dismiss();
+  }, []);
+
+  /** Adresse choisie : complète aussi code postal et ville si besoin. */
+  const applyAddressSuggestion = useCallback((s: AddressSuggestion) => {
+    if (s.street) setAddress(s.street);
+    if (s.postalCode) setPostalCode(s.postalCode);
+    if (s.city) setCity(s.city);
+    Keyboard.dismiss();
+  }, []);
+
+  /** Passe à l'étape « code de vérification » (compte créé, email à valider). */
+  const goToOtpStep = useCallback(() => {
+    setStep('otp');
+    setOtpCode('');
+    setOtpError(null);
+    setResendIn(RESEND_COOLDOWN_S);
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, []);
+
+  const backToForm = useCallback(() => {
+    setStep('form');
+    setOtpCode('');
+    setOtpError(null);
+  }, []);
 
   const submit = useCallback(async () => {
-    const v = validateEmailPwd();
-    if (v) {
-      Toast.show({ type: 'error', text1: v });
-      return;
-    }
+    Keyboard.dismiss();
+
     if (mode === 'register') {
-      if (password !== confirm) {
-        Toast.show({ type: 'error', text1: 'Les mots de passe ne correspondent pas.' });
+      const v = validateRegisterForm(email, password, confirm);
+      const civil = validateCivilStatus(civility, firstName, lastName);
+      setEmailError(v.emailError);
+      setPasswordError(v.passwordError);
+      setConfirmError(v.confirmError);
+      setCivilityError(civil.civilityError);
+      setFirstNameError(civil.firstNameError);
+      setLastNameError(civil.lastNameError);
+      if (
+        v.emailError ||
+        v.passwordError ||
+        v.confirmError ||
+        civil.civilityError ||
+        civil.firstNameError ||
+        civil.lastNameError
+      ) {
         return;
       }
+    } else {
+      const v = validateLoginForm(email, password);
+      setEmailError(v.emailError);
+      setPasswordError(v.passwordError);
+      setConfirmError(null);
+      if (v.emailError || v.passwordError) return;
     }
+
     setBusy(true);
     try {
       if (mode === 'login') {
         await loginWithEmailPassword(email, password);
+        nav.goBack();
       } else {
-        await registerWithEmailPassword({
+        const outcome = await registerWithEmailPassword({
           email,
           password,
-          fullName: fullName.trim() || undefined,
-          phone: phone.trim() || undefined,
-          address: address.trim() || undefined,
-          postalCode: postalCode.trim() || undefined,
-          city: city.trim() || undefined,
+          ...registerProfile(),
         });
+        if (outcome.status === 'verification_required') {
+          // Le compte est créé : Base44 vient d'envoyer le code par email.
+          goToOtpStep();
+        } else {
+          nav.goBack();
+        }
       }
-      nav.goBack();
     } catch (e) {
-      const msg = errText(e);
-      if (mode === 'register' && isVerifyEmailRequired(msg)) {
-        // Inscription RÉUSSIE côté serveur. L'auto-login échoue tant que
-        // l'email n'est pas vérifié → on affiche un succès et on bascule
-        // l'écran en mode connexion avec l'email pré-rempli.
-        Alert.alert(
-          'Compte créé !',
-          'Merci ! Allez vérifier votre email pour activer votre compte, puis connectez-vous.',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                setMode('login');
-                setShowForgot(false);
-                setPassword('');
-                setConfirm('');
-              },
-            },
-          ],
-        );
-      } else if (mode === 'register' && isEmailAlreadyRegistered(msg)) {
+      if (mode === 'register' && isEmailAlreadyRegistered(e)) {
         Alert.alert(
           'Compte déjà existant',
-          'Cet email est déjà utilisé. Connectez-vous avec votre mot de passe ou utilisez « Mot de passe oublié » depuis l’écran Connexion.',
+          'Cet email est déjà utilisé. Connectez-vous, ou saisissez le code de vérification si vous venez de créer ce compte.',
           [
             {
               text: 'Me connecter',
@@ -174,21 +226,61 @@ export const LoginScreen: React.FC = () => {
                 setShowForgot(false);
               },
             },
-            { text: 'OK', style: 'cancel' },
+            {
+              text: 'Saisir le code',
+              onPress: () => {
+                goToOtpStep();
+                void resendEmailOtp(email).catch(() => {});
+              },
+            },
+            { text: 'Annuler', style: 'cancel' },
           ],
         );
-      } else if (mode === 'login' && isVerifyEmailRequired(msg)) {
+      } else if (mode === 'login' && isEmailVerificationRequired(e)) {
         Alert.alert(
           'Email non vérifié',
-          'Allez vérifier votre email pour activer votre compte avant de vous connecter.',
+          `Saisissez le code à ${OTP_CODE_LENGTH} chiffres envoyé à ${email.trim()} pour activer votre compte.`,
+          [
+            {
+              text: 'Saisir le code',
+              onPress: () => {
+                goToOtpStep();
+                void resendEmailOtp(email).catch(() => {});
+              },
+            },
+            { text: 'Annuler', style: 'cancel' },
+          ],
+        );
+      } else if (mode === 'login' && isInvalidCredentials(e)) {
+        // Base44 répond « Invalid email or password » aussi bien pour un
+        // mauvais mot de passe que pour un compte jamais vérifié : on propose
+        // les deux issues plutôt que de laisser l'utilisateur bloqué.
+        Alert.alert(
+          'Connexion impossible',
+          `${authErrorMessage(e)}\n\nSi vous venez de créer ce compte, il doit d’abord être activé avec le code envoyé par email.`,
+          [
+            {
+              text: 'Activer mon compte',
+              onPress: () => {
+                goToOtpStep();
+                void resendEmailOtp(email).catch(() => {});
+              },
+            },
+            { text: 'Réessayer', style: 'cancel' },
+          ],
         );
       } else {
-        Toast.show({
-          type: 'error',
-          text1: mode === 'login' ? 'Connexion impossible' : 'Inscription impossible',
-          text2: msg,
-          visibilityTime: 4500,
-        });
+        /*
+          IMPORTANT : l'écran Connexion est présenté en `modal` natif (voir
+          RootNavigator). Un Toast (monté à la racine React) s'afficherait
+          DERRIÈRE la modale → invisible, et le bouton paraît « inactif »
+          (bug 2.1a signalé par App Review). On utilise donc `Alert` natif,
+          qui s'affiche toujours au-dessus de la modale.
+        */
+        Alert.alert(
+          mode === 'login' ? 'Connexion impossible' : 'Inscription impossible',
+          authErrorMessage(e),
+        );
       }
     } finally {
       setBusy(false);
@@ -198,51 +290,99 @@ export const LoginScreen: React.FC = () => {
     email,
     password,
     confirm,
-    fullName,
-    phone,
-    address,
-    postalCode,
-    city,
+    civility,
+    firstName,
+    lastName,
+    registerProfile,
     loginWithEmailPassword,
     registerWithEmailPassword,
+    resendEmailOtp,
+    goToOtpStep,
     nav,
   ]);
+
+  const submitOtp = useCallback(async () => {
+    Keyboard.dismiss();
+    const err = validateOtpCode(otpCode);
+    setOtpError(err);
+    if (err) return;
+
+    setBusy(true);
+    try {
+      await verifyEmailOtp({
+        email,
+        otpCode,
+        password,
+        profile: registerProfile(),
+      });
+      nav.goBack();
+    } catch (e) {
+      setOtpError(authErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [otpCode, email, password, registerProfile, verifyEmailOtp, nav]);
+
+  const resendOtp = useCallback(async () => {
+    if (resendIn > 0) return;
+    setBusy(true);
+    try {
+      await resendEmailOtp(email);
+      setResendIn(RESEND_COOLDOWN_S);
+      Alert.alert('Code renvoyé', `Un nouveau code vient d’être envoyé à ${email.trim()}.`);
+    } catch (e) {
+      Alert.alert('Envoi impossible', authErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [email, resendIn, resendEmailOtp]);
 
   const sendReset = useCallback(async () => {
     const e = email.trim();
     if (!e) {
-      Toast.show({ type: 'error', text1: 'Indiquez votre email ci-dessus.' });
+      setEmailError('Indiquez votre email ci-dessus.');
       return;
     }
     setResetBusy(true);
     try {
       await requestPasswordReset(e);
-      Toast.show({
-        type: 'success',
-        text1: 'Email envoyé',
-        text2: 'Suivez le lien reçu pour réinitialiser votre mot de passe.',
-      });
+      Alert.alert(
+        'Email envoyé',
+        'Suivez le lien reçu pour réinitialiser votre mot de passe.',
+      );
       setShowForgot(false);
     } catch (err) {
-      Toast.show({ type: 'error', text1: 'Envoi impossible', text2: errText(err) });
+      Alert.alert('Envoi impossible', authErrorMessage(err));
     } finally {
       setResetBusy(false);
     }
   }, [email, requestPasswordReset]);
 
-  const openBrowserLogin = useCallback(async () => {
-    setBusy(true);
-    try {
-      await loginWithBase44();
-    } catch (err) {
-      Toast.show({ type: 'error', text1: 'Connexion navigateur', text2: errText(err) });
-    } finally {
-      setBusy(false);
-    }
-  }, [loginWithBase44]);
+  const runSocialLogin = useCallback(
+    async (provider: 'apple' | 'google') => {
+      setBusy(true);
+      try {
+        if (provider === 'apple') {
+          await loginWithApple();
+        } else {
+          await loginWithGoogle();
+        }
+        nav.goBack();
+      } catch (err) {
+        Alert.alert(
+          provider === 'apple' ? 'Connexion Apple' : 'Connexion Google',
+          authErrorMessage(err),
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [loginWithApple, loginWithGoogle, nav],
+  );
 
   const topPad = Math.max(insets.top, 8);
   const footerPadBottom = Math.max(insets.bottom, 16);
+  const isOtpStep = step === 'otp';
 
   return (
     <Screen
@@ -250,26 +390,45 @@ export const LoginScreen: React.FC = () => {
       paddingHorizontal={0}
       edges={['top', 'left', 'right']}
       bg={colors.background}
-      keyboardBehavior="padding"
+      /*
+        Pas de KeyboardAvoidingView ici : sur iOS c'est
+        `automaticallyAdjustKeyboardInsets` du ScrollView qui gère l'espace
+        clavier (sinon les deux mécanismes se cumulent et le formulaire
+        « saute »), sur Android c'est `adjustResize`.
+      */
+      keyboardBehavior="none"
     >
       <View style={styles.flex}>
         <ScrollView
+          ref={scrollRef}
           style={styles.scroll}
           contentContainerStyle={[
             styles.scrollInner,
             {
               paddingTop: topPad,
               paddingHorizontal: H_PAD,
-              paddingBottom: 24,
+              /*
+                Réserve explicite pour le clavier sur iOS (sur Android c'est
+                `adjustResize` qui rétrécit déjà la fenêtre). Sans cette marge,
+                `scrollTo` est borné par la hauteur du contenu et ne peut pas
+                remonter les derniers champs au-dessus du clavier.
+                On préfère cette réserve à `automaticallyAdjustKeyboardInsets`,
+                dont l'inset arrive après le `onFocus` — donc trop tard.
+              */
+              paddingBottom: 8 + (Platform.OS === 'ios' ? keyboardHeight : 0),
             },
           ]}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator
           bounces
         >
           <View style={[styles.toolbar, { borderBottomColor: border }]}>
-            <Pressable onPress={() => nav.goBack()} hitSlop={12} style={styles.toolbarBtn}>
+            <Pressable
+              onPress={() => (isOtpStep ? backToForm() : nav.goBack())}
+              hitSlop={12}
+              style={styles.toolbarBtn}
+            >
               <Text style={[styles.toolbarLink, { color: fg }]}>← Retour</Text>
             </Pressable>
             <Pressable
@@ -281,175 +440,385 @@ export const LoginScreen: React.FC = () => {
             </Pressable>
           </View>
 
-          <Text style={[styles.title, { color: fg }]}>
-            {mode === 'login' ? 'Connexion' : 'Création de compte'}
-          </Text>
-          <Text style={[styles.subtitle, { color: muted }]}>
-            {mode === 'login'
-              ? 'Entrez votre email et votre mot de passe.'
-              : 'Remplissez le formulaire, puis confirmez en bas.'}
-          </Text>
+          {isOtpStep ? (
+            <>
+              <Text style={[styles.title, { color: fg }]}>Vérifiez votre email</Text>
+              <Text style={[styles.subtitle, { color: muted }]}>
+                Votre compte est créé. Saisissez le code à {OTP_CODE_LENGTH} chiffres envoyé à{' '}
+                <Text style={{ color: fg, fontWeight: '700' }}>{email.trim()}</Text> pour
+                l’activer.
+              </Text>
 
-          <View style={styles.fields}>
-            {mode === 'register' ? (
-              <Input
-                label="Nom complet"
-                value={fullName}
-                onChangeText={setFullName}
-                placeholder="Marie Dupont"
-                autoCapitalize="words"
-              />
-            ) : null}
+              <View style={styles.fields}>
+                <Input
+                  label="Code de vérification"
+                  value={otpCode}
+                  onChangeText={(v) => {
+                    // Seuls les chiffres : les apps mail collent parfois des espaces.
+                    setOtpCode(v.replace(/[^0-9]/g, '').slice(0, OTP_CODE_LENGTH));
+                    if (otpError) setOtpError(null);
+                  }}
+                  placeholder="123456"
+                  keyboardType="number-pad"
+                  textContentType="oneTimeCode"
+                  autoComplete="one-time-code"
+                  maxLength={OTP_CODE_LENGTH}
+                  error={otpError ?? undefined}
+                  returnKeyType="done"
+                  onSubmitEditing={() => void submitOtp()}
+                  style={styles.otpInput}
+                  testID="otp-input"
+                />
+              </View>
 
-            <Input
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="vous@email.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Input
-              label="Mot de passe"
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Au moins 6 caractères"
-              secureTextEntry
-              textContentType={mode === 'login' ? 'password' : 'newPassword'}
-            />
-            {mode === 'register' ? (
-              <>
-                <Input
-                  label="Confirmer le mot de passe"
-                  value={confirm}
-                  onChangeText={setConfirm}
-                  placeholder="Répétez le mot de passe"
-                  secureTextEntry
-                  textContentType="newPassword"
-                />
-                <Input
-                  label="Téléphone"
-                  value={phone}
-                  onChangeText={setPhone}
-                  placeholder="06 12 34 56 78"
-                  keyboardType="phone-pad"
-                />
-                <Input
-                  label="Adresse"
-                  value={address}
-                  onChangeText={setAddress}
-                  placeholder="12 rue de la République"
-                  autoCapitalize="words"
-                />
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Input
-                    label="Code postal"
-                    value={postalCode}
-                    onChangeText={setPostalCode}
-                    placeholder="75001"
-                    keyboardType="numeric"
-                    containerStyle={{ flex: 1 }}
-                  />
-                  <Input
-                    label="Ville"
-                    value={city}
-                    onChangeText={setCity}
-                    placeholder="Paris"
-                    autoCapitalize="words"
-                    containerStyle={{ flex: 1.4 }}
-                  />
-                </View>
-              </>
-            ) : null}
-          </View>
-
-          {mode === 'login' && !showForgot ? (
-            <View style={styles.linksRow}>
-              <Pressable onPress={() => setShowForgot(true)}>
-                <Text style={[styles.linkMuted, { color: muted }]}>Mot de passe oublié ?</Text>
-              </Pressable>
-              <Pressable onPress={() => setMode('register')}>
-                <Text style={[styles.linkMuted, { color: muted }]}>
-                  Créer un compte{' '}
-                  <Text style={{ color: fg, fontWeight: '700' }}>→</Text>
+              <Pressable
+                onPress={() => void resendOtp()}
+                disabled={busy || resendIn > 0}
+                hitSlop={8}
+                style={{ marginTop: 4 }}
+              >
+                <Text style={[styles.linkMuted, { color: resendIn > 0 ? muted : fg }]}>
+                  {resendIn > 0
+                    ? `Renvoyer le code dans ${resendIn} s`
+                    : 'Je n’ai rien reçu — renvoyer le code'}
                 </Text>
               </Pressable>
-            </View>
-          ) : null}
 
-          {mode === 'register' ? (
-            <Pressable onPress={() => setMode('login')} style={{ marginTop: 14 }}>
-              <Text style={[styles.linkMuted, { color: muted }]}>
-                Déjà un compte ?{' '}
-                <Text style={{ color: fg, fontWeight: '700' }}>Se connecter</Text>
-              </Text>
-            </Pressable>
-          ) : null}
-
-          {mode === 'login' && showForgot ? (
-            <View style={[styles.forgotBox, { borderColor: border, backgroundColor: colors.muted }]}>
-              <Text style={[styles.forgotHint, { color: muted }]}>
-                Réinitialisation du mot de passe — nous envoyons un lien sur votre email.
-              </Text>
-              <Button
-                title={resetBusy ? 'Envoi…' : 'Envoyer le lien'}
-                variant="outline"
-                size="sm"
-                fullWidth
-                loading={resetBusy}
-                disabled={resetBusy}
-                onPress={() => void sendReset()}
-              />
-              <Pressable onPress={() => setShowForgot(false)}>
-                <Text style={[styles.cancelForgot, { color: muted }]}>Fermer</Text>
+              <Pressable onPress={backToForm} style={{ marginTop: 14 }} hitSlop={8}>
+                <Text style={[styles.linkMuted, { color: muted }]}>
+                  Modifier mes informations
+                </Text>
               </Pressable>
-            </View>
-          ) : null}
+
+              <Text style={[styles.otpHint, { color: muted }]}>
+                Pensez à vérifier vos courriers indésirables si l’email tarde à arriver.
+              </Text>
+
+              <View
+                style={[
+                  styles.dock,
+                  {
+                    borderTopColor: border,
+                    backgroundColor: colors.background,
+                    paddingBottom: footerPadBottom,
+                    marginHorizontal: -H_PAD,
+                    paddingHorizontal: H_PAD,
+                  },
+                ]}
+              >
+                <Button
+                  title="Activer mon compte"
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  loading={busy}
+                  disabled={busy}
+                  onPress={() => void submitOtp()}
+                  style={styles.primaryBtn}
+                />
+                <Pressable
+                  onPress={() => nav.goBack()}
+                  disabled={busy}
+                  style={{ marginTop: 14 }}
+                  hitSlop={8}
+                >
+                  <Text style={[styles.secLinkMuted, { color: muted }]}>Continuer en invité</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={[styles.title, { color: fg }]}>
+                {mode === 'login' ? 'Connexion' : 'Création de compte'}
+              </Text>
+              <Text style={[styles.subtitle, { color: muted }]}>
+                {mode === 'login'
+                  ? 'Entrez votre email et votre mot de passe.'
+                  : 'Remplissez le formulaire, puis confirmez en bas.'}
+              </Text>
+
+              <View style={styles.fields} onLayout={onFieldsLayout} testID="auth-fields">
+                {mode === 'register' ? (
+                  <>
+                    {/*
+                      État civil : base44 attend `civility` (M. / Mme / Autre),
+                      `first_name` et `last_name` — le web refuse la commande
+                      tant que ces champs sont vides. On les demande donc dès
+                      l'inscription plutôt qu'après coup dans « Mon profil ».
+                    */}
+                    <View onLayout={onFieldLayout('civility')} style={styles.civilityBlock}>
+                      <Text style={[styles.civilityLabel, { color: fg }]}>État civil</Text>
+                      <View
+                        style={styles.civilityRow}
+                        accessibilityRole="radiogroup"
+                        accessibilityLabel="État civil"
+                      >
+                        {CIVILITY_OPTIONS.map((option) => {
+                          const selected = civility === option;
+                          return (
+                            <Pressable
+                              key={option}
+                              accessibilityRole="radio"
+                              accessibilityState={{ selected }}
+                              accessibilityLabel={option}
+                              onPress={() => {
+                                setCivility(option);
+                                if (civilityError) setCivilityError(null);
+                              }}
+                              android_ripple={{ color: 'rgba(0,0,0,0.06)' }}
+                              style={[
+                                styles.civilityChip,
+                                {
+                                  borderColor: selected ? palette.brand.orange : border,
+                                  backgroundColor: selected ? palette.orange[50] : 'transparent',
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.civilityChipText,
+                                  { color: selected ? palette.brand.orange : fg },
+                                ]}
+                              >
+                                {option}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      {civilityError ? (
+                        <Text style={[styles.civilityError, { color: palette.rose[500] }]}>
+                          {civilityError}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Input
+                      label="Prénom"
+                      value={firstName}
+                      onChangeText={(v) => {
+                        setFirstName(v);
+                        if (firstNameError) setFirstNameError(null);
+                      }}
+                      placeholder="Marie"
+                      autoCapitalize="words"
+                      error={firstNameError ?? undefined}
+                      onContainerLayout={onFieldLayout('firstName')}
+                      onFocus={focusField('firstName')}
+                    />
+                    <Input
+                      label="Nom"
+                      value={lastName}
+                      onChangeText={(v) => {
+                        setLastName(v);
+                        if (lastNameError) setLastNameError(null);
+                      }}
+                      placeholder="Dupont"
+                      autoCapitalize="words"
+                      error={lastNameError ?? undefined}
+                      onContainerLayout={onFieldLayout('lastName')}
+                      onFocus={focusField('lastName')}
+                    />
+                  </>
+                ) : null}
+
+                <Input
+                  label="Email"
+                  value={email}
+                  onChangeText={(v) => {
+                    setEmail(v);
+                    if (emailError) setEmailError(null);
+                  }}
+                  placeholder="vous@email.com"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  error={emailError ?? undefined}
+                  returnKeyType="next"
+                  onContainerLayout={onFieldLayout('email')}
+                  onFocus={focusField('email')}
+                />
+                <Input
+                  label="Mot de passe"
+                  value={password}
+                  onChangeText={(v) => {
+                    setPassword(v);
+                    if (passwordError) setPasswordError(null);
+                  }}
+                  placeholder={
+                    mode === 'register'
+                      ? `Au moins ${MIN_REGISTER_PASSWORD_LENGTH} caractères`
+                      : 'Votre mot de passe'
+                  }
+                  secureTextEntry
+                  textContentType={mode === 'login' ? 'password' : 'newPassword'}
+                  error={passwordError ?? undefined}
+                  returnKeyType={mode === 'login' ? 'done' : 'next'}
+                  onSubmitEditing={mode === 'login' ? () => void submit() : undefined}
+                  onContainerLayout={onFieldLayout('password')}
+                  onFocus={focusField('password')}
+                />
+                {mode === 'register' ? (
+                  <>
+                    <Input
+                      label="Confirmer le mot de passe"
+                      value={confirm}
+                      onChangeText={(v) => {
+                        setConfirm(v);
+                        if (confirmError) setConfirmError(null);
+                      }}
+                      placeholder="Répétez le mot de passe"
+                      secureTextEntry
+                      textContentType="newPassword"
+                      error={confirmError ?? undefined}
+                      onContainerLayout={onFieldLayout('confirm')}
+                      onFocus={focusField('confirm')}
+                    />
+                    <Input
+                      label="Téléphone"
+                      value={phone}
+                      onChangeText={setPhone}
+                      placeholder="06 12 34 56 78"
+                      keyboardType="phone-pad"
+                      onContainerLayout={onFieldLayout('phone')}
+                      onFocus={focusField('phone')}
+                    />
+                    {/*
+                      Ville et code postal AVANT l'adresse : c'est le code
+                      postal qui restreint la recherche d'adresse à la commune.
+                      Dans l'autre sens, « 12 rue de la République » renvoie
+                      Toulouse, Argenteuil, Nîmes… et jamais la bonne ville.
+                    */}
+                    <AddressAutocomplete
+                      kind="city"
+                      value={city}
+                      onChangeText={setCity}
+                      onSelectSuggestion={applyCitySuggestion}
+                      onContainerLayout={onFieldLayout('city')}
+                      onFocus={focusField('city')}
+                    />
+                    <Input
+                      label="Code postal"
+                      value={postalCode}
+                      onChangeText={setPostalCode}
+                      placeholder="51000"
+                      keyboardType="numeric"
+                      onContainerLayout={onFieldLayout('postalCode')}
+                      onFocus={focusField('postalCode')}
+                    />
+                    <AddressAutocomplete
+                      value={address}
+                      onChangeText={setAddress}
+                      onSelectSuggestion={applyAddressSuggestion}
+                      postalCode={postalCode}
+                      onContainerLayout={onFieldLayout('address')}
+                      onFocus={focusField('address')}
+                    />
+                  </>
+                ) : null}
+              </View>
+
+              {mode === 'login' && !showForgot ? (
+                <View style={styles.linksRow}>
+                  <Pressable onPress={() => setShowForgot(true)}>
+                    <Text style={[styles.linkMuted, { color: muted }]}>Mot de passe oublié ?</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setMode('register')}>
+                    <Text style={[styles.linkMuted, { color: muted }]}>
+                      Créer un compte <Text style={{ color: fg, fontWeight: '700' }}>→</Text>
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {mode === 'register' ? (
+                <Pressable onPress={() => setMode('login')} style={{ marginTop: 14 }}>
+                  <Text style={[styles.linkMuted, { color: muted }]}>
+                    Déjà un compte ?{' '}
+                    <Text style={{ color: fg, fontWeight: '700' }}>Se connecter</Text>
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              {mode === 'login' && showForgot ? (
+                <View
+                  style={[styles.forgotBox, { borderColor: border, backgroundColor: colors.muted }]}
+                >
+                  <Text style={[styles.forgotHint, { color: muted }]}>
+                    Réinitialisation du mot de passe — nous envoyons un lien sur votre email.
+                  </Text>
+                  <Button
+                    title={resetBusy ? 'Envoi…' : 'Envoyer le lien'}
+                    variant="outline"
+                    size="sm"
+                    fullWidth
+                    loading={resetBusy}
+                    disabled={resetBusy}
+                    onPress={() => void sendReset()}
+                  />
+                  <Pressable onPress={() => setShowForgot(false)}>
+                    <Text style={[styles.cancelForgot, { color: muted }]}>Fermer</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {/*
+                Le bloc d'actions est dans le ScrollView (pas en dehors) pour que
+                `keyboardShouldPersistTaps="always"` s'applique aussi au bouton
+                « Se connecter » sur iPad — sinon le 1er tap ferme le clavier sans
+                déclencher onPress (bug signalé par App Review).
+              */}
+              <View
+                style={[
+                  styles.dock,
+                  {
+                    borderTopColor: border,
+                    backgroundColor: colors.background,
+                    paddingBottom: footerPadBottom,
+                    marginHorizontal: -H_PAD,
+                    paddingHorizontal: H_PAD,
+                  },
+                ]}
+              >
+                <Button
+                  title={mode === 'login' ? 'Se connecter' : 'Créer mon compte'}
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  loading={busy}
+                  disabled={busy}
+                  onPress={() => void submit()}
+                  style={styles.primaryBtn}
+                  accessibilityHint={
+                    mode === 'login'
+                      ? 'Connexion avec email et mot de passe saisis ci-dessus'
+                      : undefined
+                  }
+                />
+
+                <View style={[styles.sep, { marginTop: 14 }]}>
+                  <View style={[styles.sepLine, { backgroundColor: border }]} />
+                  <Text style={[styles.sepTxt, { color: muted }]}>ou</Text>
+                  <View style={[styles.sepLine, { backgroundColor: border }]} />
+                </View>
+
+                <SocialSignInButtons
+                  busy={busy}
+                  onApplePress={() => void runSocialLogin('apple')}
+                  onGooglePress={() => void runSocialLogin('google')}
+                />
+
+                <Pressable
+                  onPress={() => nav.goBack()}
+                  disabled={busy}
+                  style={{ marginTop: 14 }}
+                  hitSlop={8}
+                >
+                  <Text style={[styles.secLinkMuted, { color: muted }]}>Continuer en invité</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
         </ScrollView>
-
-        <View
-          style={[
-            styles.dock,
-            {
-              borderTopColor: border,
-              backgroundColor: colors.background,
-              paddingBottom: footerPadBottom,
-              paddingHorizontal: H_PAD,
-            },
-          ]}
-          pointerEvents="box-none"
-        >
-          <Button
-            title={mode === 'login' ? 'Se connecter' : 'Créer mon compte'}
-            variant="primary"
-            size="lg"
-            fullWidth
-            loading={busy}
-            disabled={busy}
-            onPress={() => void submit()}
-            style={styles.primaryBtn}
-          />
-
-          <View style={[styles.sep, { marginTop: 14 }]}>
-            <View style={[styles.sepLine, { backgroundColor: border }]} />
-            <Text style={[styles.sepTxt, { color: muted }]}>ou</Text>
-            <View style={[styles.sepLine, { backgroundColor: border }]} />
-          </View>
-
-          <Pressable
-            onPress={() => void openBrowserLogin()}
-            disabled={busy}
-            style={{ marginTop: 12 }}
-            hitSlop={8}
-          >
-            <Text style={[styles.secLink, { color: fg }]}>Continuer avec Google / navigateur</Text>
-          </Pressable>
-
-          <Pressable onPress={() => nav.goBack()} disabled={busy} style={{ marginTop: 10 }} hitSlop={8}>
-            <Text style={[styles.secLinkMuted, { color: muted }]}>Continuer en invité</Text>
-          </Pressable>
-        </View>
       </View>
     </Screen>
   );
@@ -488,6 +857,36 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
   fields: { marginTop: 22 },
+  /** Bloc « État civil » : trois pastilles M. / Mme / Autre. */
+  civilityBlock: { marginBottom: 14 },
+  civilityLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  civilityRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  civilityChip: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  civilityChipText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  civilityError: {
+    fontSize: 12,
+    marginTop: 6,
+  },
+
+  otpInput: { fontSize: 22, letterSpacing: 6, fontWeight: '700' },
+  otpHint: { fontSize: 13, lineHeight: 19, marginTop: 18 },
 
   linksRow: {
     flexDirection: 'row',
