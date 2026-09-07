@@ -13,6 +13,7 @@ import { setBase44Token } from '@/api/base44Client';
 import { useToast } from '@/hooks/useToast';
 import { useTheme } from '@/theme/ThemeProvider';
 import type { DelivererStackParamList } from '@/navigation/types';
+import { authErrorMessage } from '@/lib/authErrors';
 
 interface CustomAuthResponse {
   access_token: string;
@@ -41,7 +42,7 @@ export const DelivererLoginScreen: React.FC = () => {
       toast.success('Bienvenue', 'Connexion réussie');
       nav.replace('DelivererDashboard');
     },
-    onError: (e: Error) => toast.error('Connexion', e.message),
+    onError: (e: Error) => toast.error('Connexion impossible', authErrorMessage(e)),
   });
 
   return (
