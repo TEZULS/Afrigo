@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Platform } from 'react-native';
+import { Pressable } from '@/components/ui/Pressable';
 import { Image } from 'expo-image';
 import {
   Trash2,
@@ -17,7 +18,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { useCart, type CartLine } from '@/stores/cart';
+import { useCart, cartLineKey, type CartLine } from '@/stores/cart';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useAuth } from '@/lib/AuthContext';
 import { DeliveryZone } from '@/api/entities';
@@ -30,8 +31,7 @@ import { formatPrice } from '@/utils/format';
 import { palette } from '@/theme/tokens';
 import type { RootStackParamList } from '@/navigation/types';
 
-const lineKey = (line: CartLine): string =>
-  `${line.productId}-${line.variant?.value ?? ''}`;
+const lineKey = cartLineKey;
 
 export const CartScreen: React.FC = () => {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -412,7 +412,10 @@ export const CartScreen: React.FC = () => {
             size="lg"
             fullWidth
             disabled={selectedLines.length === 0}
-            onPress={() => nav.navigate('Checkout')}
+            // Seules les lignes cochées partent en commande ; les autres restent au panier.
+            onPress={() =>
+              nav.navigate('Checkout', { lineKeys: selectedLines.map(lineKey) })
+            }
           />
         </View>
       </View>
