@@ -6,37 +6,39 @@ import {
   SectionList,
   Platform,
   Pressable,
-  Alert,
-  TextInput,
-  ActivityIndicator,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { Search, Camera, X } from 'lucide-react-native';
-import * as ImagePicker from 'expo-image-picker';
+import { X, Menu, ArrowUp } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Screen } from '@/components/ui/Screen';
-import { Input } from '@/components/ui/Input';
 import { Loader } from '@/components/ui/Loader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductCard, ProductDTO } from '@/components/products/ProductCard';
 import { CategoryFilter } from '@/components/products/CategoryFilter';
 import { ShopModeSegment } from '@/components/home/ShopModeSegment';
 import { useCart } from '@/stores/cart';
+import { useMenuDrawer } from '@/stores/menuDrawer';
+import { useHomeSearch } from '@/stores/homeSearch';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useAuth } from '@/lib/AuthContext';
-import { Product, UploadFile, InvokeLLM } from '@/api/entities';
-import { useToast } from '@/hooks/useToast';
+import { Product } from '@/api/entities';
 import { passesShopMode } from '@/utils/productShopMode';
+import { isCosmetiqueCategory } from '@/utils/categories';
 import {
   remoteDecrementAfterRemove,
   remoteUpsertAfterAdd,
 } from '@/lib/cartRemote';
 import { palette } from '@/theme/tokens';
 import type { RootStackParamList } from '@/navigation/types';
+import { sellingPrice } from '@/utils/productPricing';
 
 const H_PAD = 16;
 const GRID_GAP = 12;
+/** Défilement (px) au-delà duquel la flèche « retour en haut » apparaît. */
+const SCROLL_TOP_THRESHOLD = 480;
 
 function chunkProductPairs(rows: ProductDTO[]): ProductDTO[][] {
   const out: ProductDTO[][] = [];
@@ -62,6 +64,18 @@ export const HomeScreen: React.FC = () => {
     });
   }, []);
 
+  /**
+   * Flèche flottante « retour en haut » : n'apparaît qu'une fois la liste
+   * bien défilée (comme sur le web), pour ne pas gêner le sélecteur de rayon.
+   * Le seuil est appliqué dans le handler pour ne re-rendre qu'au changement
+   * d'état, pas à chaque événement de scroll.
+   */
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const onListScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const past = e.nativeEvent.contentOffset.y > SCROLL_TOP_THRESHOLD;
+    setShowScrollTop((prev) => (prev === past ? prev : past));
+  }, []);
+
   const userObj = user as Record<string, unknown> | null;
   const firstName =
     (userObj?.first_name as string | undefined) ??
@@ -72,71 +86,27 @@ export const HomeScreen: React.FC = () => {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [shopMode, setShopMode] = useState<'food' | 'cosmetique'>('food');
-  const [scanningImage, setScanningImage] = useState(false);
 
-  const toast = useToast();
   const cart = useCart();
+  const openMenu = useMenuDrawer((s) => s.open);
+  const appliedQuery = useHomeSearch((s) => s.query);
+  const appliedQueryToken = useHomeSearch((s) => s.queryToken);
 
   /**
-   * Recherche par image : upload la photo vers Base44 puis demande à l'IA
-   * Vision d'identifier le(s) produit(s) visible(s). Le résultat (ex.
-   * « Nestlé Pure Life ») est injecté dans la barre de recherche, ce qui
-   * filtre automatiquement le catalogue côté client via `search`.
+   * L'écran de recherche plein écran (onglet 🔍) pousse le terme validé dans
+   * `useHomeSearch` : on l'applique au catalogue et on remonte en haut.
    */
-  const analyzeProductImage = useCallback(
-    async (uri: string) => {
-      setScanningImage(true);
-      toast.info('Analyse en cours…', 'Identification du produit sur la photo');
-      try {
-        const file = { uri, name: 'product.jpg', type: 'image/jpeg' } as unknown as File;
-        const upload = (await UploadFile({ file })) as { file_url?: string; url?: string };
-        const fileUrl = upload.file_url ?? upload.url;
-        if (!fileUrl) {
-          throw new Error('Upload sans URL retournée.');
-        }
-
-        const llm = (await InvokeLLM({
-          prompt:
-            "Analyse cette image et identifie le produit alimentaire ou cosmétique principal visible (marque + nom de produit). " +
-            "Retourne UNIQUEMENT le ou les mots-clés à chercher dans un catalogue, séparés par des espaces. " +
-            "Sois bref (1 à 4 mots), précis. Exemples: \"Nestlé Pure Life\", \"tomate\", \"Nutella\", \"savon karité\". " +
-            "Si rien n'est identifiable, retourne une chaîne vide.",
-          file_urls: [fileUrl],
-          response_json_schema: {
-            type: 'object',
-            properties: {
-              products: {
-                type: 'string',
-                description: 'Noms du/des produits détectés, séparés par des espaces',
-              },
-            },
-          },
-        } as Parameters<typeof InvokeLLM>[0])) as { products?: string } | string | undefined;
-
-        const detected =
-          (typeof llm === 'string' ? llm : llm?.products ?? '').trim();
-
-        if (!detected) {
-          toast.error('Aucun produit identifié', "Réessayez avec une photo plus nette.");
-          return;
-        }
-
-        setSearch(detected);
-        toast.success('Produit identifié', detected);
-        listRef.current?.scrollToLocation({
-          sectionIndex: 0,
-          itemIndex: 0,
-          animated: true,
-          viewPosition: 0,
-        });
-      } catch (e) {
-        toast.error('Recherche par image impossible', (e as Error).message);
-      } finally {
-        setScanningImage(false);
-      }
-    },
-    [toast],
-  );
+  useEffect(() => {
+    if (appliedQueryToken === 0) return;
+    setSearch(appliedQuery);
+    setCategory('all');
+    listRef.current?.scrollToLocation({
+      sectionIndex: 0,
+      itemIndex: 0,
+      animated: true,
+      viewPosition: 0,
+    });
+  }, [appliedQuery, appliedQueryToken]);
 
   useEffect(() => {
     setCategory('all');
@@ -150,9 +120,44 @@ export const HomeScreen: React.FC = () => {
     },
   });
 
+  /**
+   * Catalogue réellement visible par ce client — mêmes règles que le web
+   * déployé : produit désactivé masqué, et `allowed_tiers` doit contenir le
+   * niveau de fidélité du client (les produits sans liste sont ouverts à
+   * tous).
+   */
+  const customerTier = (userObj?.customer_tier as string | undefined) ?? 'normal';
+  const catalogue = useMemo(
+    () =>
+      (data ?? []).filter((p) => {
+        if (p.is_active === false) return false;
+        const tiers = p.allowed_tiers;
+        return !Array.isArray(tiers) || tiers.length === 0 || tiers.includes(customerTier);
+      }),
+    [data, customerTier],
+  );
+
+  /**
+   * Y a-t-il au moins un cosmétique au catalogue visible ? Sinon le sélecteur
+   * Alimentation/Cosmétiques n'a aucun intérêt : on le masque complètement
+   * (le catalogue est alors 100 % alimentaire).
+   *
+   * Le stock n'entre pas en compte : un produit épuisé reste listé (avec sa
+   * pastille « Épuisé »), masquer son rayon le rendrait inatteignable.
+   */
+  const hasCosmetiques = useMemo(
+    () => catalogue.some((p) => isCosmetiqueCategory(p.category)),
+    [catalogue],
+  );
+
+  /* Le rayon cosmétiques se vide alors qu'il est affiché → retour sur food. */
+  useEffect(() => {
+    if (!hasCosmetiques && shopMode === 'cosmetique') setShopMode('food');
+  }, [hasCosmetiques, shopMode]);
+
   const modeFiltered = useMemo(
-    () => (data ?? []).filter((p) => passesShopMode(p, shopMode)),
-    [data, shopMode],
+    () => catalogue.filter((p) => passesShopMode(p, shopMode)),
+    [catalogue, shopMode],
   );
 
   const filtered = useMemo(() => {
@@ -218,179 +223,65 @@ export const HomeScreen: React.FC = () => {
 
   const listEmptyDescription =
     shopMode === 'cosmetique'
-      ? 'Aucun article avec la catégorie « cosmetique » pour le moment. Les nouveautés arrivent bientôt.'
+      ? 'Aucun article dans le rayon Cosmétiques pour le moment. Les nouveautés arrivent bientôt.'
       : 'Modifiez vos filtres ou votre recherche.';
 
   /**
-   * Bloc orange « Bienvenue sur AfriGo » + sous-titre — rendu comme
-   * `ListHeaderComponent` de la SectionList → défile et disparaît quand on
-   * scrolle vers le bas.
+   * En-tête de section : segment Alimentation/Cosmétiques (fond blanc,
+   * uniquement s'il existe au moins un cosmétique disponible), puis — le cas
+   * échéant — le rappel du terme recherché.
+   *
+   * La barre de recherche a été retirée de l'accueil : la recherche se fait
+   * désormais uniquement depuis l'onglet 🔍 (qui embarque aussi la recherche
+   * par photo). Quand cet écran pousse un terme ici, on affiche une puce
+   * « Recherche : … ✕ » pour que le filtre reste visible et annulable.
    */
-  const renderWelcomeIntro = useCallback(
-    () => (
-      <View style={[styles.welcomeIntro, { backgroundColor: palette.brand.orange }]}>
-        <Text style={styles.welcomeTitle}>Bienvenue sur AfriGo</Text>
-        <Text style={styles.welcomeSubtitle}>
-          Profitez de nos produits de qualité et nos bonus au quotidien
-        </Text>
-      </View>
-    ),
-    [],
-  );
-
-  /**
-   * Section header sticky : barre de recherche (sur fond orange) + segment
-   * Alimentation/Cosmétiques (sur fond blanc). Reste collé en haut quand
-   * on scrolle.
-   */
-  const renderStickyHeader = useCallback(
+  const renderSectionHeader = useCallback(
     () => (
       <View>
-        {/* Search row sur fond orange */}
-        <View style={[styles.stickySearchBar, { backgroundColor: palette.brand.orange }]}>
-          <View style={styles.searchRow}>
-            <View style={[styles.searchPill, { backgroundColor: '#FFF' }]}>
-              <Search size={18} color={colors.mutedForeground} />
-              <TextInput
-                accessibilityLabel="Rechercher un produit"
-                placeholder="Rechercher un produit…"
-                placeholderTextColor={colors.mutedForeground}
-                value={search}
-                onChangeText={setSearch}
-                style={[styles.searchInput, { color: colors.foreground }]}
-                returnKeyType="search"
-              />
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Rechercher avec une photo"
-                disabled={scanningImage}
-                onPress={() => {
-                  if (scanningImage) return;
-                  Alert.alert(
-                    'Recherche par image',
-                    'Comment souhaitez-vous fournir la photo ?',
-                    [
-                      {
-                        text: 'Prendre une photo',
-                        onPress: async () => {
-                          const perms = await ImagePicker.requestCameraPermissionsAsync();
-                          if (!perms.granted) {
-                            Alert.alert(
-                              'Caméra refusée',
-                              "L'accès à l'appareil photo est requis pour la recherche par image.",
-                            );
-                            return;
-                          }
-                          const r = await ImagePicker.launchCameraAsync({
-                            mediaTypes: ['images'],
-                            quality: 0.7,
-                          });
-                          if (!r.canceled && r.assets[0]?.uri) {
-                            await analyzeProductImage(r.assets[0].uri);
-                          }
-                        },
-                      },
-                      {
-                        text: 'Choisir dans la galerie',
-                        onPress: async () => {
-                          const perms = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                          if (!perms.granted) {
-                            Alert.alert(
-                              'Galerie refusée',
-                              "L'accès à la galerie est requis pour la recherche par image.",
-                            );
-                            return;
-                          }
-                          const r = await ImagePicker.launchImageLibraryAsync({
-                            mediaTypes: ['images'],
-                            quality: 0.7,
-                          });
-                          if (!r.canceled && r.assets[0]?.uri) {
-                            await analyzeProductImage(r.assets[0].uri);
-                          }
-                        },
-                      },
-                      { text: 'Annuler', style: 'cancel' },
-                    ],
-                  );
-                }}
-                hitSlop={8}
-                style={styles.cameraBtn}
-              >
-                {scanningImage ? (
-                  <ActivityIndicator size="small" color={palette.brand.orange} />
-                ) : (
-                  <Camera size={20} color={colors.mutedForeground} />
-                )}
-              </Pressable>
-            </View>
-            {/*
-              Quand l'utilisateur a saisi du texte, le bouton 🔎 devient un
-              ❌ qui efface tout le contenu de la barre de recherche. Le tap
-              vide `search` et lance un scroll en haut de liste pour
-              rafraîchir l'affichage.
-            */}
-            {search.length > 0 ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Effacer la recherche"
-                onPress={() => {
-                  setSearch('');
-                  listRef.current?.scrollToLocation({
-                    sectionIndex: 0,
-                    itemIndex: 0,
-                    animated: true,
-                    viewPosition: 0,
-                  });
-                }}
-                style={[styles.searchBtn, { backgroundColor: '#FFF' }]}
-                android_ripple={{ color: 'rgba(0,0,0,0.06)', borderless: true, radius: 22 }}
-              >
-                <X size={20} color={palette.brand.orange} strokeWidth={2.5} />
-              </Pressable>
-            ) : (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Lancer la recherche"
-                onPress={() => {
-                  listRef.current?.scrollToLocation({
-                    sectionIndex: 0,
-                    itemIndex: 0,
-                    animated: true,
-                    viewPosition: 0,
-                  });
-                }}
-                style={[styles.searchBtn, { backgroundColor: '#FFF' }]}
-                android_ripple={{ color: 'rgba(0,0,0,0.06)', borderless: true, radius: 22 }}
-              >
-                <Search size={20} color={palette.brand.orange} />
-              </Pressable>
-            )}
+        {/* ShopMode (Alimentation/Cosmétiques) sur fond blanc — masqué tant
+            qu'aucun produit cosmétique n'existe au catalogue. */}
+        {hasCosmetiques ? (
+          <View style={[styles.stickyShopMode, { backgroundColor: colors.background }]}>
+            <ShopModeSegment mode={shopMode} onChange={setShopMode} />
           </View>
-        </View>
-        {/* ShopMode (Alimentation/Cosmétiques) sur fond blanc */}
-        <View style={[styles.stickyShopMode, { backgroundColor: colors.background }]}>
-          <ShopModeSegment mode={shopMode} onChange={setShopMode} />
-        </View>
+        ) : null}
+        {search.trim() ? (
+          <View style={[styles.searchChipRow, { backgroundColor: colors.background }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Effacer la recherche « ${search} »`}
+              onPress={() => setSearch('')}
+              style={[
+                styles.searchChip,
+                { backgroundColor: colors.surfaceMuted, borderColor: colors.border },
+              ]}
+              android_ripple={{ color: 'rgba(0,0,0,0.06)' }}
+            >
+              <Text style={[styles.searchChipText, { color: colors.foreground }]} numberOfLines={1}>
+                Recherche : {search.trim()}
+              </Text>
+              <X size={16} color={palette.brand.orange} strokeWidth={2.5} />
+            </Pressable>
+          </View>
+        ) : null}
       </View>
     ),
-    [
-      search,
-      shopMode,
-      scanningImage,
-      analyzeProductImage,
-      colors.mutedForeground,
-      colors.foreground,
-      colors.background,
-    ],
+    [shopMode, hasCosmetiques, search, colors.background, colors.surfaceMuted, colors.border, colors.foreground],
   );
 
   /**
    * Filtres circulaires (Tous / Fruits…) — rendu comme PREMIER item de la
    * section data : défile naturellement avec les produits.
    */
-  const renderCategoryRow = useCallback(
-    () => (
+  const renderCategoryRow = useCallback(() => {
+    /*
+      Aucun produit dans le rayon courant (typiquement « Cosmétiques » encore
+      vide) → pas de pastille de catégorie du tout, donc pas de barre ni de
+      séparateur à afficher.
+    */
+    if (availableCategories.length === 0) return null;
+    return (
       <View style={[styles.scrollCategoryBar, { backgroundColor: colors.background }]}>
         <CategoryFilter
           selected={category}
@@ -400,9 +291,8 @@ export const HomeScreen: React.FC = () => {
           horizontalInset={H_PAD}
         />
       </View>
-    ),
-    [category, availableCategories, shopMode, colors.background],
-  );
+    );
+  }, [category, availableCategories, shopMode, colors.background]);
 
   const renderRow = useCallback(
     ({ item }: { item: Row }) => {
@@ -430,8 +320,7 @@ export const HomeScreen: React.FC = () => {
                     productId: p.id,
                     name: p.name,
                     imageUrl: p.image_url,
-                    unitPrice:
-                      p.is_promotion && p.promotion_price != null ? p.promotion_price : p.price,
+                    unitPrice: sellingPrice(p),
                     category: p.category,
                     unit: p.unit,
                   };
@@ -459,12 +348,12 @@ export const HomeScreen: React.FC = () => {
       ref={listRef as unknown as React.Ref<SectionList<Row>>}
       style={styles.list}
       sections={sections}
-      stickySectionHeadersEnabled
+      /* Sticky natif désactivé : le sélecteur de rayon défile avec la liste. */
+      stickySectionHeadersEnabled={false}
       keyExtractor={(item, idx) =>
         item.kind === 'categories' ? 'cats' : item.pair.map((p) => p.id).join('-') + ':' + idx
       }
-      ListHeaderComponent={renderWelcomeIntro}
-      renderSectionHeader={renderStickyHeader}
+      renderSectionHeader={renderSectionHeader}
       renderItem={renderRow}
       contentContainerStyle={[
         styles.listContent,
@@ -472,6 +361,8 @@ export const HomeScreen: React.FC = () => {
       ]}
       refreshing={isRefetching}
       onRefresh={refetch}
+      onScroll={onListScroll}
+      scrollEventThrottle={100}
       showsVerticalScrollIndicator={false}
       initialNumToRender={8}
       windowSize={5}
@@ -509,41 +400,67 @@ export const HomeScreen: React.FC = () => {
             >
               <Text style={[styles.brand, { color: colors.brandOrange }]}>AfriGo</Text>
             </Pressable>
-            {isAuthenticated && firstName ? (
+            {/*
+              Bloc de droite : salutation (ou bouton de connexion) suivi du
+              bouton ☰ — le menu a quitté la barre du bas pour venir ici, à
+              côté du « Bonjour ».
+            */}
+            <View style={styles.headerActions}>
+              {isAuthenticated && firstName ? (
+                /* Simple libellé : le profil s'ouvre depuis le menu ☰. */
+                <View style={styles.greeting}>
+                  <Text
+                    style={[styles.greetingText, { color: colors.foreground }]}
+                    numberOfLines={1}
+                  >
+                    Bonjour, {firstName}
+                  </Text>
+                </View>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Se connecter ou s'inscrire"
+                  onPress={() => nav.navigate('Login', { initialMode: 'login' })}
+                  android_ripple={{ color: 'rgba(255,255,255,0.18)' }}
+                  style={[styles.connectBtn, { backgroundColor: palette.brand.orange }]}
+                >
+                  <Text style={styles.connectBtnText}>S&apos;inscrire/Se connecter</Text>
+                </Pressable>
+              )}
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Bonjour, ${firstName}`}
-                onPress={() => nav.navigate('ClientTabs', { screen: 'ProfileTab' })}
-                hitSlop={6}
-                style={styles.greetingBtn}
+                accessibilityLabel="Ouvrir le menu"
+                onPress={() => openMenu('HomeTab')}
+                hitSlop={8}
+                android_ripple={{ color: 'rgba(0,0,0,0.06)', borderless: true, radius: 22 }}
+                style={[styles.menuBtn, { borderColor: colors.border }]}
               >
-                <Text style={[styles.greetingText, { color: colors.foreground }]} numberOfLines={1}>
-                  Bonjour, {firstName}
-                </Text>
+                <Menu size={20} color={colors.foreground} />
               </Pressable>
-            ) : (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Se connecter ou s'inscrire"
-                onPress={() => nav.navigate('Login', { initialMode: 'login' })}
-                android_ripple={{ color: 'rgba(255,255,255,0.18)' }}
-                style={[styles.connectBtn, { backgroundColor: palette.brand.orange }]}
-              >
-                <Text style={styles.connectBtnText}>S&apos;inscrire/Se connecter</Text>
-              </Pressable>
-            )}
+            </View>
           </View>
         </View>
 
         <View style={[styles.listArea, { backgroundColor: colors.background }]}>
           {/*
             La SectionList rend :
-            - ListHeader : titre + sous-titre orange (scrollent et disparaissent)
-            - SectionHeader sticky : barre de recherche orange + ShopMode blanc
+            - SectionHeader : ShopMode (si cosmétiques) + puce de recherche
             - 1er item de la section : filtres catégories (scroll)
             - items suivants : paires de produits
           */}
           {renderProductsList()}
+          {showScrollTop ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Retour en haut de la page"
+              onPress={scrollToTop}
+              hitSlop={8}
+              android_ripple={{ color: 'rgba(0,0,0,0.06)', borderless: true, radius: 26 }}
+              style={[styles.scrollTopBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            >
+              <ArrowUp size={22} color={colors.foreground} strokeWidth={2.5} />
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
@@ -578,96 +495,45 @@ const styles = StyleSheet.create({
     paddingRight: 4,
     flexShrink: 0,
   },
-  welcomeBanner: {
+  /** Puce « Recherche : … ✕ » affichée quand l'onglet 🔍 a poussé un terme. */
+  searchChipRow: {
     paddingHorizontal: H_PAD,
-    paddingTop: 18,
-    paddingBottom: 18,
-    marginBottom: 8,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    alignItems: 'center',
+    paddingTop: 10,
   },
-  welcomeIntro: {
-    paddingHorizontal: H_PAD,
-    paddingTop: 20,
-    paddingBottom: 16,
-    alignItems: 'center',
-  },
-  stickySearchBar: {
-    paddingHorizontal: H_PAD,
-    paddingTop: 8,
-    paddingBottom: 14,
-  },
-  welcomeTitle: {
-    color: '#FFF',
-    fontSize: 22,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  welcomeSubtitle: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '500',
-    textAlign: 'center',
-    opacity: 0.95,
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    width: '100%',
-  },
-  searchPill: {
-    flex: 1,
+  searchChip: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 14,
-    height: 48,
-    borderRadius: 14,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 3,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    paddingVertical: 0,
-    height: 48,
-  },
-  cameraBtn: {
-    paddingHorizontal: 4,
+    maxWidth: '100%',
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
   },
-  searchBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+  searchChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 1,
+  },
+  menuBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 3,
-      },
-      android: { elevation: 2 },
-    }),
+    flexShrink: 0,
   },
-  greetingBtn: {
+  greeting: {
     paddingHorizontal: 8,
     paddingVertical: 6,
-    borderRadius: 10,
     flexShrink: 1,
   },
   greetingText: {
@@ -742,6 +608,29 @@ const styles = StyleSheet.create({
   },
   gridCell: {
     width: '50%',
+  },
+  /** Flèche flottante « retour en haut » — en haut à gauche, comme sur le web. */
+  scrollTopBtn: {
+    position: 'absolute',
+    top: 12,
+    left: H_PAD,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 6,
+      },
+      android: { elevation: 5 },
+      default: {},
+    }),
   },
   listState: { flex: 1, justifyContent: 'center', minHeight: 200 },
   emptyWithHeaderPad: { paddingTop: 8, paddingBottom: 24 },
