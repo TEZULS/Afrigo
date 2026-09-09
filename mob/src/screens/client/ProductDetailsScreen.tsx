@@ -4,13 +4,13 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Pressable,
   Platform,
   Dimensions,
   FlatList,
   NativeScrollEvent,
   NativeSyntheticEvent,
 } from 'react-native';
+import { Pressable } from '@/components/ui/Pressable';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
@@ -30,6 +30,14 @@ import { useCart } from '@/stores/cart';
 import { useAuth } from '@/lib/AuthContext';
 import { remoteDecrementAfterRemove, remoteUpsertAfterAdd } from '@/lib/cartRemote';
 import { formatPrice } from '@/utils/format';
+import { unitLabel } from '@/utils/units';
+import {
+  catalogPrice,
+  lowStockLabel,
+  sellingPrice,
+  splitPrice,
+  vatBreakdown,
+} from '@/utils/productPricing';
 import { palette } from '@/theme/tokens';
 import type { RootStackParamList } from '@/navigation/types';
 
@@ -47,7 +55,12 @@ interface ProductFull {
   id: string;
   name: string;
   description?: string;
+  /** Prix HT quand `vat_rate` est renseigné, sinon prix client (produits anciens). */
   price: number;
+  /** Prix TTC calculé par l'admin — affiché et facturé. */
+  price_ttc?: number | null;
+  /** Taux de TVA (%) ; absent sur les produits sans TVA saisie. */
+  vat_rate?: number | null;
   promotion_price?: number;
   is_promotion?: boolean;
   promotion_end_date?: string;
@@ -129,29 +142,10 @@ const VARIANT_TYPE_LABELS: Record<string, string> = {
   forme: 'Forme',
   poids: 'Poids',
   pack: 'Type de pack',
+  sache: 'Sachet',
+  lot: 'Lot',
+  carton: 'Carton',
 };
-
-/**
- * Suffixe affiché à côté du prix selon l'unité de vente du produit
- * (cf. schéma Product.unit). Aligné sur le web où on voit « 2,49 € / kilo ».
- */
-const UNIT_PRICE_SUFFIX: Record<string, string> = {
-  piece: 'pièce',
-  unite: 'unité',
-  kg: 'kilo',
-  litre: 'litre',
-  metre: 'mètre',
-  bouteille: 'bouteille',
-  pack: 'pack',
-  lot: 'lot',
-  carton: 'carton',
-  sac: 'sac',
-  sache: 'sachet',
-  boite: 'boîte',
-};
-
-const unitSuffix = (unit?: string): string =>
-  unit && UNIT_PRICE_SUFFIX[unit] ? ` / ${UNIT_PRICE_SUFFIX[unit]}` : '';
 
 const WIN_W = Dimensions.get('window').width;
 
@@ -217,15 +211,35 @@ export const ProductDetailsScreen: React.FC = () => {
   const isPromotion = Boolean(
     variantPromoPrice || (product?.is_promotion && product?.promotion_price),
   );
+  /** Prix catalogue TTC du produit (`price_ttc` si TVA renseignée). */
+  const productBasePrice = product ? catalogPrice(product) : 0;
   const baseFromVariant = variantPromoPrice
     ? Number(variantPromoPrice)
     : isPromotion && product?.promotion_price
       ? product.promotion_price
-      : (product?.price ?? 0);
+      : productBasePrice;
   const unitPrice = variantPromoPrice
     ? Number(variantPromoPrice)
     : baseFromVariant + (variant?.price_modifier ?? 0);
-  const stock = variant?.stock_quantity ?? product?.stock_quantity ?? 0;
+  /**
+   * Stock : on se base sur `product.stock_quantity`, comme l'app web
+   * déployée. Le champ `stock_quantity` porté par chaque variante n'est pas
+   * tenu à jour en production (il vaut 0 sur la quasi-totalité des variantes
+   * de produits pourtant en stock) : s'en servir affichait « Épuisé » et
+   * bloquait l'ajout au panier dès qu'une variante était sélectionnée.
+   * On ne le retient donc que s'il est strictement positif.
+   */
+  const variantStock = variant?.stock_quantity;
+  const stock =
+    typeof variantStock === 'number' && variantStock > 0
+      ? variantStock
+      : (product?.stock_quantity ?? 0);
+  /** « Plus que 3 sachets » quand il reste 1 à 3 unités. */
+  const lowStock = lowStockLabel(stock, product?.unit);
+
+  const priceParts = splitPrice(unitPrice);
+  /** HT + TVA incluses dans le prix affiché (null si TVA jamais renseignée). */
+  const vat = vatBreakdown(unitPrice, product?.vat_rate);
 
   const images = useMemo(() => {
     if (!product) return [FALLBACK_IMG];
@@ -260,6 +274,20 @@ export const ProductDetailsScreen: React.FC = () => {
     }
     return map;
   }, [product?.variants]);
+
+  // Dès qu'un produit propose au moins une variante, elle doit être choisie avant l'ajout au
+  // panier (même règle que le web déployé). La règle porte sur le total et non sur chaque type :
+  // certains produits ont deux alternatives réparties sur deux types (ex. « 1 Sachet » / « lot de
+  // 3 »). Avec l'ancien seuil « > 1 », un produit à variante unique était ajouté au prix de base,
+  // sans son `price_modifier` ni sa sélection — donc facturé au mauvais prix.
+  const variantChoiceRequired = (product?.variants?.length ?? 0) > 0;
+  const variantChoiceLabel = useMemo(() => {
+    const types = Object.keys(variantsByType);
+    if (types.length !== 1) return 'une option';
+    const first = types[0]!;
+    return `une option (${(VARIANT_TYPE_LABELS[first] ?? first).toLowerCase()})`;
+  }, [variantsByType]);
+  const missingVariantChoice = variantChoiceRequired && !variant;
 
   const similarProducts = useMemo(() => {
     if (!product) return [];
@@ -434,22 +462,34 @@ export const ProductDetailsScreen: React.FC = () => {
             </View>
           ) : null}
 
-          <View style={styles.priceBlock}>
-            <Text style={[styles.price, { color: colors.foreground }]}>
-              {formatPrice(unitPrice)}
-              <Text style={[styles.priceUnit, { color: colors.mutedForeground }]}>
-                {unitSuffix(product.unit)}
-              </Text>
-            </Text>
+          {/*
+            Même présentation que la carte produit (entier en grand, centimes
+            en petit), puis « TTC / unité », et la décomposition HT + TVA de la
+            fiche web dès que l'admin a renseigné un taux.
+          */}
+          <View style={styles.priceBlock} testID="product-price-block">
+            <View style={styles.priceMain}>
+              <Text style={[styles.priceInt, { color: colors.foreground }]}>{priceParts.int}</Text>
+              <Text style={[styles.priceDec, { color: colors.foreground }]}>.{priceParts.dec}</Text>
+              <Text style={[styles.priceCurrency, { color: colors.foreground }]}> €</Text>
+            </View>
             {isPromotion ? (
               <Text style={[styles.strike, { color: colors.mutedForeground }]}>
-                {formatPrice(product.price)}
+                {formatPrice(productBasePrice + (variant?.price_modifier ?? 0))}
               </Text>
             ) : null}
             {variantPromoPrice ? (
               <Badge label="Promo variante" variant="brand" />
             ) : null}
+            <Text style={[styles.priceUnit, { color: colors.mutedForeground }]}>
+              TTC{unitLabel(product.unit) ? ` / ${unitLabel(product.unit)}` : ''}
+            </Text>
           </View>
+          {vat ? (
+            <Text style={[styles.vatLine, { color: colors.mutedForeground }]} testID="product-vat-line">
+              Prix HT {vat.ht.toFixed(2)} €{'  '}+{'  '}TVA {vat.rate.toFixed(1)}% ({vat.vat.toFixed(2)} €)
+            </Text>
+          ) : null}
 
           {product.is_promotion && product.promotion_end_date ? (
             <Text style={[styles.promoEnd, { color: palette.brand.orange }]}>
@@ -464,7 +504,13 @@ export const ProductDetailsScreen: React.FC = () => {
 
           {stock <= 0 ? (
             <Badge label="Épuisé" variant="destructive" style={{ marginTop: 8, alignSelf: 'flex-start' }} />
-          ) : null}
+          ) : lowStock ? (
+            <Text style={[styles.stock, { color: palette.rose[600] }]} testID="product-low-stock">
+              ⚠️ {lowStock} — commandez vite !
+            </Text>
+          ) : (
+            <Text style={[styles.stock, { color: palette.emerald[600] }]}>En stock</Text>
+          )}
 
           {avgRating != null ? (
             <Pressable
@@ -485,25 +531,37 @@ export const ProductDetailsScreen: React.FC = () => {
 
           {Object.keys(variantsByType).length > 0 ? (
             <View style={{ marginTop: 18 }}>
+              {missingVariantChoice ? (
+                <Text style={[styles.variantHint, { color: palette.rose[500] }]}>
+                  Choix obligatoire : sélectionnez une option
+                </Text>
+              ) : null}
               {Object.entries(variantsByType).map(([type, variants]) => (
                 <View key={type} style={{ marginBottom: 12 }}>
                   <Text style={[styles.sectionLbl, { color: colors.foreground }]}>
-                    {VARIANT_TYPE_LABELS[type] ?? type} <Text style={{ color: palette.rose[500] }}>*</Text>
+                    {VARIANT_TYPE_LABELS[type] ?? type}
+                    {variantChoiceRequired ? <Text style={{ color: palette.rose[500] }}> *</Text> : null}
                   </Text>
                   <View style={styles.variantRow}>
                     {variants.map((v, i) => {
                       const selected = variant?.value === v.value;
                       const variantUnitPrice = v.promotion_price
                         ? Number(v.promotion_price)
-                        : product.price + (v.price_modifier ?? 0);
+                        : productBasePrice + (v.price_modifier ?? 0);
                       return (
                         <Pressable
                           key={`${type}-${i}`}
-                          onPress={() => setVariant(selected ? null : v)}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected }}
+                          onPress={() => setVariant(selected && !variantChoiceRequired ? null : v)}
                           style={[
                             styles.variantChip,
                             {
-                              borderColor: selected ? palette.emerald[500] : colors.border,
+                              borderColor: selected
+                                ? palette.emerald[500]
+                                : missingVariantChoice
+                                  ? palette.rose[400]
+                                  : colors.border,
                               backgroundColor: selected ? palette.emerald[50] : 'transparent',
                             },
                           ]}
@@ -537,7 +595,7 @@ export const ProductDetailsScreen: React.FC = () => {
                                     textDecorationLine: 'line-through',
                                   }}
                                 >
-                                  {formatPrice(product.price + (v.price_modifier ?? 0))}
+                                  {formatPrice(productBasePrice + (v.price_modifier ?? 0))}
                                 </Text>
                               </View>
                             ) : v.price_modifier ? (
@@ -600,10 +658,7 @@ export const ProductDetailsScreen: React.FC = () => {
                           productId: prod.id,
                           name: prod.name,
                           imageUrl: prod.image_url,
-                          unitPrice:
-                            prod.is_promotion && prod.promotion_price != null
-                              ? prod.promotion_price
-                              : prod.price,
+                          unitPrice: sellingPrice(prod),
                           category: prod.category,
                           unit: prod.unit,
                         };
@@ -646,16 +701,29 @@ export const ProductDetailsScreen: React.FC = () => {
           </View>
         ) : null}
 
+        {cartQty === 0 && missingVariantChoice && stock > 0 ? (
+          <Text style={[styles.choiceWarn, { color: palette.rose[500] }]}>
+            Sélectionnez {variantChoiceLabel} avant d'ajouter au panier
+          </Text>
+        ) : null}
+
         {cartQty === 0 ? (
           <Button
-            title={stock > 0 ? 'Ajouter au panier' : 'Indisponible'}
+            title={
+              stock <= 0
+                ? 'Indisponible'
+                : missingVariantChoice
+                  ? 'Choisissez une option'
+                  : 'Ajouter au panier'
+            }
             variant="primary"
             size="lg"
-            disabled={stock <= 0}
+            disabled={stock <= 0 || missingVariantChoice}
             fullWidth
             leftIcon={<ShoppingBag size={18} color="#FFF" />}
             style={{ marginTop: cartQty === 0 && stock > 0 ? 10 : 0, borderRadius: 10 }}
             onPress={() => {
+              if (missingVariantChoice) return;
               const line = linePayload();
               add({ ...line, quantity: qtyPick });
               if (syncEmail)
@@ -796,8 +864,12 @@ const styles = StyleSheet.create({
   title: { fontSize: 21, fontWeight: '700', letterSpacing: -0.2, marginTop: 6 },
   countryRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
   priceBlock: { flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 12, flexWrap: 'wrap' },
-  price: { fontSize: 26, fontWeight: '800' },
+  priceMain: { flexDirection: 'row', alignItems: 'baseline' },
+  priceInt: { fontSize: 36, fontWeight: '800', letterSpacing: -0.5 },
+  priceDec: { fontSize: 18, fontWeight: '800' },
+  priceCurrency: { fontSize: 28, fontWeight: '800', marginLeft: 2 },
   priceUnit: { fontSize: 14, fontWeight: '500' },
+  vatLine: { fontSize: 13, marginTop: 6 },
   strike: { fontSize: 16, textDecorationLine: 'line-through' },
   promoEnd: { fontSize: 12, fontWeight: '600', marginTop: 8 },
   stock: { fontSize: 14, fontWeight: '600', marginTop: 10 },
@@ -810,6 +882,8 @@ const styles = StyleSheet.create({
   },
   desc: { fontSize: 14, lineHeight: 21, marginTop: 14 },
   sectionLbl: { fontSize: 13, fontWeight: '700', marginBottom: 8 },
+  variantHint: { fontSize: 11, fontWeight: '600', marginTop: -4, marginBottom: 8 },
+  choiceWarn: { fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: 10 },
   variantRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
