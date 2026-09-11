@@ -13,6 +13,7 @@ import {
   Wallet,
   AlertTriangle,
   MapPin,
+  ShieldCheck,
 } from 'lucide-react-native';
 import * as Linking from 'expo-linking';
 import { Screen } from '@/components/ui/Screen';
@@ -23,11 +24,18 @@ import { Loader } from '@/components/ui/Loader';
 import { Badge } from '@/components/ui/Badge';
 import { OrderTracker } from '@/components/orders/OrderTracker';
 import { OrderStatusBadge } from '@/components/orders/OrderStatusBadge';
-import { Order } from '@/api/entities';
+import { Order, Return } from '@/api/entities';
 import { useAuth } from '@/lib/AuthContext';
+import { orderIssueMessage } from '@/lib/userErrors';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import { formatDateTime, formatPrice } from '@/utils/format';
+import { shouldShowDeliveryCode } from '@/utils/deliveryCode';
+import {
+  canRequestReturn as canRequestReturnHelper,
+  DEFAULT_RETURN_WINDOW_HOURS,
+  paidByWalletOnly,
+} from '@/utils/orderHelpers';
 import type { RootStackParamList } from '@/navigation/types';
 
 interface OrderItem {
@@ -57,6 +65,7 @@ interface OrderFull {
   delivery_postal_code?: string;
   delivery_city?: string;
   delivery_failure_reason?: string;
+  delivery_code?: string;
   delivery?: { address?: string; lat?: number; lng?: number; phone?: string };
   customer_email?: string;
   estimated_delivery?: string;
@@ -83,9 +92,30 @@ export const OrderDetailsScreen: React.FC = () => {
     queryFn: async () => ((await Order().get?.(route.params.id)) ?? null) as OrderFull | null,
   });
 
+  /** Une seule demande de retour par commande : le bouton disparaît une fois déposée. */
+  const returnsQuery = useQuery<{ id: string; order_id: string }[]>({
+    queryKey: ['returns-mine', user?.email],
+    enabled: Boolean(user?.email),
+    queryFn: async () =>
+      ((await Return().filter?.({ customer_email: user!.email })) ?? []) as {
+        id: string;
+        order_id: string;
+      }[],
+  });
+
+  /**
+   * Pull-to-refresh : recharge la commande pour que le suivi
+   * (Reçue → Préparation → Livraison → Livrée) se mette à jour sans avoir à
+   * quitter puis rouvrir l'écran.
+   */
+  const { refetch } = query;
+  const onRefresh = React.useCallback(() => {
+    void refetch();
+  }, [refetch]);
+
   if (query.isLoading || !query.data) {
     return (
-      <Screen>
+      <Screen scroll refreshing={query.isFetching} onRefresh={onRefresh}>
         <Header onBack={nav.goBack} title="Commande" />
         <Loader />
       </Screen>
@@ -113,25 +143,44 @@ export const OrderDetailsScreen: React.FC = () => {
   const phone =
     (user?.['phone'] as string | undefined) ?? order.delivery?.phone ?? settings.data?.support_phone;
 
+  /**
+   * `notes` = instructions saisies au checkout + « Tel: … » ajouté par l'app.
+   * On n'affiche que la partie utile au client (le téléphone est déjà le sien).
+   */
+  const deliveryInstructions = (order.notes ?? '')
+    .split('\n')
+    .filter((line) => line.trim() && !/^tel\s*:/i.test(line.trim()))
+    .join('\n')
+    .trim();
+
+  const walletOnly = paidByWalletOnly(order);
+  const paymentLabel = walletOnly
+    ? 'Payé avec le portefeuille'
+    : order.payment_method === 'delivery'
+      ? 'Paiement à la livraison'
+      : 'Paiement par carte';
+  const PaymentIcon = walletOnly || order.payment_method === 'delivery' ? Wallet : CreditCard;
+
   const callPhone = (n?: string) => n && Linking.openURL(`tel:${n}`);
 
   /**
-   * Bouton « Demander un retour » : visible uniquement pendant 2 h après la
-   * livraison effective. Avant : si `delivered_date` manquait, on retournait
-   * `true` → le bouton restait visible indéfiniment. Maintenant on retombe
-   * sur `updated_date` (mis à jour quand l'admin marque la commande livrée),
-   * et on cache le bouton si aucune date fiable n'est disponible.
+   * Bouton « Demander un retour » : commande livrée, dans le délai admin
+   * (`return_time_limit_hours`, 2 h par défaut) après `delivered_date`
+   * (sinon `updated_date`), et pas de demande déjà déposée. Les dates serveur
+   * sont lues en UTC (`parseServerDate`) : avant, le décalage horaire
+   * consommait le délai d'avance et le bouton n'apparaissait jamais.
    */
-  const canRequestReturn = (() => {
-    if (order.status !== 'delivered') return false;
-    const ref = order.delivered_date ?? order.updated_date;
-    if (!ref) return false;
-    const hours = (Date.now() - new Date(ref).getTime()) / 36e5;
-    return hours <= 2;
-  })();
+  const returnWindowHours =
+    Number(settings.data?.return_time_limit_hours) > 0
+      ? Number(settings.data?.return_time_limit_hours)
+      : DEFAULT_RETURN_WINDOW_HOURS;
+  const canRequestReturn = canRequestReturnHelper(order, {
+    alreadyRequested: (returnsQuery.data ?? []).some((r) => r.order_id === order.id),
+    windowHours: returnWindowHours,
+  });
 
   return (
-    <Screen scroll>
+    <Screen scroll refreshing={query.isFetching} onRefresh={onRefresh}>
       <Header onBack={nav.goBack} title={`#${order.id.slice(-8).toUpperCase()}`} />
 
       <Card padding={14}>
@@ -147,6 +196,34 @@ export const OrderDetailsScreen: React.FC = () => {
         ) : null}
       </Card>
 
+      {shouldShowDeliveryCode(order.status, order.delivery_code) ? (
+        <Card padding={16} style={{ marginTop: 12, borderColor: colors.brandGreen }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <ShieldCheck size={16} color={colors.brandGreen} />
+            <Text style={{ color: colors.foreground, fontWeight: '700', fontSize: 13 }}>
+              Code de confirmation
+            </Text>
+          </View>
+          <View style={styles.codeRow}>
+            {(order.delivery_code ?? '').split('').map((digit, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.codeDigit,
+                  { backgroundColor: colors.surfaceMuted, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.codeDigitText, { color: colors.foreground }]}>{digit}</Text>
+              </View>
+            ))}
+          </View>
+          <Text style={{ color: colors.mutedForeground, fontSize: 12, lineHeight: 18 }}>
+            Communiquez ce code au livreur au moment de la remise. Il en a besoin pour valider la
+            livraison. Ne le donnez à personne d'autre.
+          </Text>
+        </Card>
+      ) : null}
+
       {cancelLikeStatus(order.status) && (order.delivery_failure_reason || order.cancellation_reason) ? (
         <Card padding={14} style={{ marginTop: 12, borderColor: colors.destructive }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -155,8 +232,18 @@ export const OrderDetailsScreen: React.FC = () => {
               {order.status === 'cancelled' ? "Motif d'annulation" : 'Motif de non-livraison'}
             </Text>
           </View>
+          {/*
+            Le motif vient parfois d'un échec technique (SDK de paiement,
+            fonction serveur) : `orderIssueMessage` le remplace par une phrase
+            compréhensible plutôt que d'exposer le message brut au client.
+          */}
           <Text style={{ color: colors.foreground, lineHeight: 20 }}>
-            {order.delivery_failure_reason ?? order.cancellation_reason}
+            {orderIssueMessage(
+              order.delivery_failure_reason ?? order.cancellation_reason,
+              order.status === 'cancelled'
+                ? 'Cette commande a été annulée.'
+                : 'La livraison n’a pas pu être effectuée.',
+            )}
           </Text>
         </Card>
       ) : null}
@@ -187,6 +274,16 @@ export const OrderDetailsScreen: React.FC = () => {
             <Text style={{ color: colors.foreground, marginTop: 2 }}>
               {[order.delivery_postal_code, order.delivery_city].filter(Boolean).join(' ')}
             </Text>
+            {deliveryInstructions ? (
+              <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+                  Instructions de livraison
+                </Text>
+                <Text style={{ color: colors.foreground, marginTop: 2, lineHeight: 19 }}>
+                  {deliveryInstructions}
+                </Text>
+              </View>
+            ) : null}
           </View>
         </View>
       </Card>
@@ -278,15 +375,11 @@ export const OrderDetailsScreen: React.FC = () => {
             gap: 8,
           }}
         >
-          {order.payment_method === 'delivery' ? (
-            <Wallet size={16} color={colors.foreground} />
-          ) : (
-            <CreditCard size={16} color={colors.foreground} />
-          )}
+          <PaymentIcon size={16} color={colors.foreground} />
           <Text style={{ color: colors.foreground, fontWeight: '600', flex: 1 }}>
-            {order.payment_method === 'delivery' ? 'Paiement à la livraison' : 'Paiement par carte'}
+            {paymentLabel}
           </Text>
-          {order.payment_method === 'delivery' && order.amount_to_pay != null ? (
+          {!walletOnly && order.payment_method === 'delivery' && order.amount_to_pay != null ? (
             <Text style={{ color: colors.foreground, fontWeight: '800' }}>
               {formatPrice(order.amount_to_pay)}
             </Text>
@@ -332,4 +425,14 @@ const styles = StyleSheet.create({
   dateLabel: { fontSize: 12 },
   itemRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingVertical: 6, gap: 8 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
+  codeRow: { flexDirection: 'row', gap: 8, marginTop: 12, marginBottom: 10 },
+  codeDigit: {
+    width: 46,
+    height: 54,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  codeDigitText: { fontSize: 24, fontWeight: '800', letterSpacing: 1 },
 });
