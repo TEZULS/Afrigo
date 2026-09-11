@@ -1,17 +1,27 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { MapPin, CreditCard, Wallet, Truck, ChevronRight, Tag } from 'lucide-react-native';
+import {
+  MapPin,
+  CreditCard,
+  Banknote,
+  Truck,
+  ChevronRight,
+  Tag,
+  CheckCircle2,
+  FileText,
+} from 'lucide-react-native';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { AddressAutocomplete } from '@/components/ui/AddressAutocomplete';
 import { useTheme } from '@/theme/ThemeProvider';
-import { useCart } from '@/stores/cart';
+import { useCart, cartLineKey } from '@/stores/cart';
 import type { CartLine } from '@/stores/cart';
 import {
   Order,
@@ -19,16 +29,30 @@ import {
   DeliverySlot,
   DiscountCode,
   DiscountCodeUsage,
-  WalletTransaction,
   invokeFunction,
 } from '@/api/entities';
-import { getBase44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
+import { debitWalletForOrder } from '@/lib/wallet';
 import { formatPrice } from '@/utils/format';
+import {
+  computeCheckoutTotals,
+  formatWalletAmountInput,
+  parseWalletAmountInput,
+} from '@/utils/checkoutMath';
 import { useToast } from '@/hooks/useToast';
-import { clearServerCartForCustomer } from '@/services/cartServerSync';
+import { consumeOrderedLines } from '@/services/cartServerSync';
 import { useAppSettings } from '@/hooks/useAppSettings';
+import type { AddressSuggestion } from '@/services/addressAutocomplete';
+import { DeliveryScheduleInfo } from '@/components/checkout/DeliveryScheduleInfo';
+import type { ScheduleDay } from '@/utils/deliverySchedule';
+import { generateDeliveryCode } from '@/utils/deliveryCode';
+import { selectedVariantsPayload } from '@/utils/selectedVariants';
 import type { RootStackParamList } from '@/navigation/types';
+import { userErrorMessage } from '@/lib/userErrors';
+import { palette } from '@/theme/tokens';
+
+/** Message d'erreur interne : zone de livraison désactivée au moment de la commande. */
+const ZONE_UNAVAILABLE = 'zone_unavailable';
 
 /** Schéma Order aligné sur Checkout.jsx + entité Base44 */
 type ApiPaymentMethod = 'card' | 'delivery';
@@ -41,6 +65,8 @@ interface ZoneRow {
   postal_codes?: string[];
   is_active?: boolean;
   min_order_amount?: number;
+  delivery_schedule?: ScheduleDay[];
+  min_days_before_delivery?: number;
 }
 
 interface SlotRow {
@@ -65,21 +91,32 @@ interface PromoCodeRow {
   applicable_order_numbers?: number[];
 }
 
-function lineToSelectedVariants(
-  line: CartLine,
-): Record<string, { type: string; value: string }> | null {
-  const t = line.variant?.type;
-  const v = line.variant?.value;
-  if (t && v) return { choice: { type: String(t), value: String(v) } };
-  return null;
+/**
+ * `Order.items[].selected_variants` : même format que le panier — voir
+ * `@/utils/selectedVariants`. La cloud function `updateStockAfterOrder` s'en
+ * sert pour retrouver la variante du produit et déduire le bon stock.
+ */
+function lineToSelectedVariants(line: CartLine) {
+  return selectedVariantsPayload(line.variant);
 }
 
 export const CheckoutScreen: React.FC = () => {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'Checkout'>>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const { user } = useAuth();
-  const { lines, total, clear } = useCart();
+  const { user, refreshUser } = useAuth();
+  const { lines: allLines } = useCart();
+  /**
+   * Lignes commandées = celles cochées au panier (`lineKeys`), pas tout le
+   * panier. Sans sélection transmise (deep link, ancien flux) : tout le panier.
+   */
+  const lineKeys = route.params?.lineKeys;
+  const lines = useMemo(() => {
+    if (!lineKeys) return allLines;
+    const keys = new Set(lineKeys);
+    return allLines.filter((l) => keys.has(cartLineKey(l)));
+  }, [allLines, lineKeys]);
   const toast = useToast();
   const appSettings = useAppSettings();
   const deliverySlotsEnabled = Boolean(appSettings.data?.delivery_slots_enabled);
@@ -88,24 +125,51 @@ export const CheckoutScreen: React.FC = () => {
   const [postalCode, setPostalCode] = useState((user?.['postal_code'] as string) ?? '');
   const [city, setCity] = useState((user?.['city'] as string) ?? '');
   const [phone, setPhone] = useState((user?.['phone'] as string) ?? '');
-  const [zone, setZone] = useState<ZoneRow | null>(null);
+  /** Instructions de livraison (code d'entrée, étage…) → `Order.notes`, comme le web. */
+  const [instructions, setInstructions] = useState('');
   const [slot, setSlot] = useState<SlotRow | null>(null);
   const [payment, setPayment] = useState<ApiPaymentMethod>('card');
+
+  /**
+   * Suggestion d'adresse choisie : remplit rue + code postal + ville. Le code
+   * postal renseigné déclenche à son tour la détection de la zone de livraison.
+   */
+  const applyAddressSuggestion = useCallback((s: AddressSuggestion) => {
+    if (s.street) setAddress(s.street);
+    if (s.postalCode) setPostalCode(s.postalCode);
+    if (s.city) setCity(s.city);
+  }, []);
 
   const [promoInput, setPromoInput] = useState('');
   const [promoError, setPromoError] = useState<string | null>(null);
   const [appliedPromo, setAppliedPromo] = useState<PromoCodeRow | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
 
+  /**
+   * Portefeuille : case à cocher + montant précis. Le client peut régler
+   * une partie par portefeuille et le reste par carte / à la livraison, ou
+   * la totalité par portefeuille (aucun mode de paiement n'est alors demandé).
+   * `walletInput` est le texte saisi ; le montant retenu est borné dans
+   * `computeCheckoutTotals` (jamais plus que le solde ni que la commande).
+   */
   const [useWallet, setUseWallet] = useState(false);
+  const [walletInput, setWalletInput] = useState('');
   const walletBalance = Number((user?.['wallet_balance'] as number | undefined) ?? 0);
 
+  /**
+   * Toutes les zones, y compris désactivées : une zone coupée par l'admin doit
+   * être reconnue pour bloquer la commande (et non simplement ignorée, sinon
+   * l'écran affiche « Aucune zone trouvée » ou garde l'ancienne zone). Lecture
+   * fraîche à chaque ouverture : l'admin peut couper une zone à tout moment.
+   */
   const zonesQuery = useQuery<ZoneRow[]>({
     queryKey: ['delivery-zones'],
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: 60_000,
     queryFn: async () => {
       const raw = ((await DeliveryZone().list?.()) ?? []) as Record<string, unknown>[];
       return raw
-        .filter((z) => z.is_active !== false)
         .map((z) => ({
           id: String(z.id),
           name: String(z.name ?? ''),
@@ -115,6 +179,9 @@ export const CheckoutScreen: React.FC = () => {
           postal_codes: z.postal_codes as string[] | undefined,
           is_active: z.is_active as boolean | undefined,
           min_order_amount: z.min_order_amount != null ? Number(z.min_order_amount) : 0,
+          delivery_schedule: (z.delivery_schedule as ScheduleDay[] | undefined) ?? [],
+          min_days_before_delivery:
+            z.min_days_before_delivery != null ? Number(z.min_days_before_delivery) : 0,
         }));
     },
   });
@@ -135,13 +202,21 @@ export const CheckoutScreen: React.FC = () => {
     },
   });
 
-  /** Correspondance automatique zone / code postal — comme Checkout.jsx */
-  useEffect(() => {
-    const zones = zonesQuery.data ?? [];
-    if (!postalCode.trim()) return;
-    const found = zones.find((z) => z.postal_codes?.includes(postalCode.trim()));
-    if (found) setZone(found);
+  /**
+   * Correspondance automatique zone / code postal — comme Checkout.jsx.
+   * Dérivée (et non stockée) : si l'admin désactive la zone pendant que
+   * l'écran est ouvert, le prochain rafraîchissement la fait disparaître.
+   */
+  const matchedZone = useMemo(() => {
+    const cp = postalCode.trim();
+    if (!cp) return null;
+    const matches = (zonesQuery.data ?? []).filter((z) => z.postal_codes?.includes(cp));
+    // Un même code postal dans deux zones : la zone active l'emporte.
+    return matches.find((z) => z.is_active !== false) ?? matches[0] ?? null;
   }, [postalCode, zonesQuery.data]);
+  /** Zone désactivée par l'admin : les clients de cette zone ne peuvent plus commander. */
+  const zoneDisabled = matchedZone != null && matchedZone.is_active === false;
+  const zone = zoneDisabled ? null : matchedZone;
 
   /**
    * Synchronise les champs adresse/CP/ville/téléphone avec le profil utilisateur :
@@ -184,23 +259,41 @@ export const CheckoutScreen: React.FC = () => {
     (user?.['phone'] as string) ?? '',
   ]);
 
-  const subTotal = total();
+  const subTotal = lines.reduce((acc, l) => acc + l.unitPrice * l.quantity, 0);
   const freeTh = zone?.free_delivery_threshold;
   const FREE_THRESHOLD = freeTh != null ? Number(freeTh) : 0;
   const isFreeDelivery =
     Boolean(zone) && (FREE_THRESHOLD === 0 || subTotal >= FREE_THRESHOLD);
   const deliveryFee =
     zone != null ? (isFreeDelivery ? 0 : Number(zone.delivery_fee ?? 0)) : 0;
-  const totalBeforeDiscounts = subTotal + deliveryFee;
 
-  const promoDiscount = appliedPromo
-    ? Math.round(((subTotal * appliedPromo.discount_percentage) / 100) * 100) / 100
-    : 0;
-  const totalAfterPromo = Math.max(0, totalBeforeDiscounts - promoDiscount);
-  const walletApplied = useWallet && walletBalance > 0
-    ? Math.min(walletBalance, totalAfterPromo)
-    : 0;
-  const grandTotal = Math.max(0, totalAfterPromo - walletApplied);
+  const totals = computeCheckoutTotals({
+    subTotal,
+    deliveryFee,
+    promoPercent: appliedPromo?.discount_percentage ?? 0,
+    walletBalance,
+    walletRequested: useWallet ? parseWalletAmountInput(walletInput, Infinity) : null,
+  });
+  const { totalBeforeDiscounts, promoDiscount, maxWalletUsage, walletApplied, grandTotal } = totals;
+  /** Commande intégralement réglée par le portefeuille : aucun autre paiement à choisir. */
+  const paidByWalletOnly = useWallet && walletApplied > 0 && grandTotal === 0;
+
+  const toggleWallet = () => {
+    setUseWallet((on) => {
+      // Cocher = proposer le maximum utilisable, modifiable ensuite.
+      if (!on) setWalletInput(formatWalletAmountInput(maxWalletUsage));
+      return !on;
+    });
+  };
+
+  /** Le plafond bouge avec le panier / la zone / le code promo : on rogne la saisie. */
+  useEffect(() => {
+    if (!useWallet) return;
+    const requested = parseWalletAmountInput(walletInput, Infinity);
+    if (requested != null && requested > maxWalletUsage) {
+      setWalletInput(formatWalletAmountInput(maxWalletUsage));
+    }
+  }, [useWallet, walletInput, maxWalletUsage]);
 
   const minOrderAmount = zone != null ? Number(zone.min_order_amount ?? 0) : 0;
   const meetsMinimum = subTotal >= minOrderAmount;
@@ -264,7 +357,7 @@ export const CheckoutScreen: React.FC = () => {
       setAppliedPromo(c);
       toast.success(`Code appliqué : -${c.discount_percentage}%`);
     } catch (e) {
-      setPromoError((e as Error).message);
+      setPromoError(userErrorMessage(e, 'Ce code promo n’a pas pu être vérifié. Réessayez.'));
       setAppliedPromo(null);
     } finally {
       setPromoBusy(false);
@@ -283,6 +376,13 @@ export const CheckoutScreen: React.FC = () => {
         nav.navigate('Login');
         throw new Error('Login requis');
       }
+      // Dernière vérification serveur : la zone a pu être coupée entre
+      // l'affichage et l'appui sur « Confirmer ».
+      const freshZones = await zonesQuery.refetch();
+      const stillActive = (freshZones.data ?? []).some(
+        (z) => z.postal_codes?.includes(postalCode.trim()) && z.is_active !== false,
+      );
+      if (!stillActive) throw new Error(ZONE_UNAVAILABLE);
       if (slot?.id) {
         await DeliverySlot().update?.(slot.id, {
           current_orders: (slot.current_orders ?? 0) + 1,
@@ -298,14 +398,23 @@ export const CheckoutScreen: React.FC = () => {
         selected_variants: lineToSelectedVariants(l),
       }));
 
-      const apiPayment: ApiPaymentMethod = payment;
+      /**
+       * Commande couverte à 100 % par le portefeuille : enregistrée comme le
+       * web (`payment_method: 'delivery'`, `amount_to_pay: 0`) — le schéma
+       * `Order` ne connaît que `card` / `delivery` — mais marquée payée pour
+       * que ni l'admin ni le livreur n'attendent d'encaissement.
+       */
+      const apiPayment: ApiPaymentMethod = paidByWalletOnly ? 'delivery' : payment;
+      const notes = [instructions.trim(), phone.trim() ? `Tel: ${phone.trim()}` : '']
+        .filter(Boolean)
+        .join('\n');
 
       const created = (await Order().create?.({
         customer_email: user.email,
         items,
         total_amount: totalBeforeDiscounts,
         payment_method: apiPayment,
-        payment_status: 'pending',
+        payment_status: paidByWalletOnly ? 'completed' : 'pending',
         wallet_amount_used: walletApplied,
         promo_code: appliedPromo?.code ?? null,
         promo_discount: promoDiscount,
@@ -314,9 +423,11 @@ export const CheckoutScreen: React.FC = () => {
         delivery_address: address.trim(),
         delivery_postal_code: postalCode.trim(),
         delivery_city: city.trim() || '—',
-        notes: phone ? `Tel: ${phone}` : undefined,
+        notes: notes || undefined,
         estimated_delivery: slot?.date,
         delivery_time: slot?.time_slot,
+        // Code à 4 chiffres que le client communiquera au livreur à la remise.
+        delivery_code: generateDeliveryCode(),
       })) as { id: string };
 
       if (appliedPromo) {
@@ -332,17 +443,17 @@ export const CheckoutScreen: React.FC = () => {
         }).catch(() => {});
       }
 
-      if (walletApplied > 0) {
-        const newBalance = walletBalance - walletApplied;
-        await getBase44()
-          .auth.updateMe({ wallet_balance: newBalance } as Record<string, unknown>)
-          .catch(() => {});
-        await WalletTransaction().create?.({
-          customer_email: user.email,
+      // Paiement carte : le portefeuille n'est débité qu'après confirmation
+      // Stripe (écran Paiement). Sinon un paiement refusé ou abandonné
+      // laissait le solde débité alors que la commande était annulée.
+      if (walletApplied > 0 && apiPayment !== 'card') {
+        await debitWalletForOrder({
+          email: user.email,
+          knownBalance: walletBalance,
           amount: walletApplied,
-          type: 'debit',
-          reason: `Paiement commande #${created.id.slice(-8)}`,
+          orderId: created.id,
         }).catch(() => {});
+        void refreshUser();
       }
 
       await invokeFunction('updateStockAfterOrder', { orderId: created.id }).catch(() => {});
@@ -351,28 +462,52 @@ export const CheckoutScreen: React.FC = () => {
         customerEmail: user.email,
         customerName: (user.full_name as string | undefined) ?? user.email,
         totalAmount: grandTotal,
-        paymentMethod: apiPayment === 'card' ? 'carte' : 'livraison',
+        // La fonction ne connaît que `card` (sinon « Paiement à la livraison ») :
+        // on envoie les mêmes valeurs que le web, plus `wallet` pour le 100 % portefeuille.
+        paymentMethod: paidByWalletOnly ? 'wallet' : apiPayment,
       }).catch(() => {});
 
-      return created;
+      return { ...created, apiPayment };
     },
     onSuccess: async (order) => {
-      if (payment === 'card') {
-        nav.replace('Payment', { orderId: order.id, amount: grandTotal });
+      if (order.apiPayment === 'card') {
+        nav.replace('Payment', {
+          orderId: order.id,
+          amount: grandTotal,
+          walletAmount: walletApplied,
+          lineKeys,
+        });
       } else {
-        if (user?.email) await clearServerCartForCustomer(user.email).catch(() => {});
-        clear();
-        toast.success('Commande passée', 'Votre commande a bien été enregistrée.');
+        await consumeOrderedLines(user?.email, lineKeys);
+        toast.success(
+          'Commande passée',
+          paidByWalletOnly
+            ? 'Votre commande est réglée avec votre portefeuille.'
+            : 'Votre commande a bien été enregistrée.',
+        );
         nav.replace('OrderDetails', { id: order.id });
       }
     },
     onError: (e: Error) => {
-      if (e.message !== 'Login requis') toast.error('Erreur', e.message);
+      if (e.message === ZONE_UNAVAILABLE) {
+        toast.error(
+          'Livraison indisponible',
+          'La livraison dans votre zone n’est pas disponible pour le moment.',
+        );
+        return;
+      }
+      if (e.message !== 'Login requis') {
+        toast.error(
+          'Commande impossible',
+          userErrorMessage(e, 'Votre commande n’a pas pu être enregistrée. Réessayez dans un instant.'),
+        );
+      }
     },
   });
 
   const canProceed =
     Boolean(address.trim() && postalCode.trim() && city.trim() && zone) &&
+    !zoneDisabled &&
     meetsMinimum &&
     !slotsBlocked;
 
@@ -381,12 +516,18 @@ export const CheckoutScreen: React.FC = () => {
       scroll
       contentStyle={{ paddingBottom: Math.max(insets.bottom, 12) + 32 }}
       keyboardBehavior="padding"
+      // En-tête hors du scroll : « AfriGo · Validation » reste toujours visible.
+      header={<Header onBack={nav.goBack} title="Validation" />}
     >
-      <Header onBack={nav.goBack} title="Validation" />
-
       <Text style={[styles.section, { color: colors.foreground }]}>Adresse de livraison</Text>
       <Card padding={14} style={{ marginTop: 8 }}>
-        <Input label="Adresse" value={address} onChangeText={setAddress} placeholder="Rue…" />
+        <AddressAutocomplete
+          value={address}
+          onChangeText={setAddress}
+          onSelectSuggestion={applyAddressSuggestion}
+          postalCode={postalCode}
+          placeholder="Rue…"
+        />
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Input
             label="Code postal"
@@ -410,13 +551,54 @@ export const CheckoutScreen: React.FC = () => {
         />
       </Card>
 
+      {/* Instructions pour le livreur — entre l'adresse et la zone, comme demandé. */}
+      <Card padding={14} style={{ marginTop: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <FileText size={16} color={colors.brandOrange} />
+          <Text style={{ color: colors.foreground, fontWeight: '700', fontSize: 13 }}>
+            Instructions de livraison{' '}
+            <Text style={{ color: colors.mutedForeground, fontWeight: '500' }}>(optionnel)</Text>
+          </Text>
+        </View>
+        <Input
+          value={instructions}
+          onChangeText={setInstructions}
+          placeholder="Code d'entrée, étage, interphone, horaires de présence…"
+          multiline
+          numberOfLines={3}
+          textAlignVertical="top"
+          maxLength={500}
+          showClear={false}
+          containerStyle={{ marginBottom: 0 }}
+          style={{ minHeight: 76 }}
+        />
+      </Card>
+
       {/*
         La zone de livraison est dérivée automatiquement du code postal saisi
         (cf. useEffect ci-dessus). Un récapitulatif léger remplace l'ancien
         bloc « Zone de livraison » qui obligeait l'utilisateur à choisir
         manuellement une zone.
       */}
-      {zone ? (
+      {zoneDisabled ? (
+        <Card
+          padding={12}
+          style={{ marginTop: 8, borderColor: palette.orange[200], backgroundColor: palette.orange[50] }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+            <MapPin size={16} color={colors.brandOrange} style={{ marginTop: 2 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.foreground, fontWeight: '700', fontSize: 13 }}>
+                Livraison indisponible dans votre zone
+              </Text>
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 2, lineHeight: 17 }}>
+                La livraison dans cette zone n&apos;est pas disponible pour le moment. Réessayez
+                plus tard : vos articles restent dans votre panier.
+              </Text>
+            </View>
+          </View>
+        </Card>
+      ) : zone ? (
         <Card padding={12} style={{ marginTop: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <MapPin size={16} color={colors.brandOrange} />
@@ -441,6 +623,13 @@ export const CheckoutScreen: React.FC = () => {
         >
           Aucune zone trouvée pour le code postal {postalCode.trim()}.
         </Text>
+      ) : null}
+
+      {zone ? (
+        <DeliveryScheduleInfo
+          schedule={zone.delivery_schedule}
+          minDaysBeforeDelivery={zone.min_days_before_delivery}
+        />
       ) : null}
 
       {!meetsMinimum && zone != null && minOrderAmount > 0 ? (
@@ -550,7 +739,11 @@ export const CheckoutScreen: React.FC = () => {
           <Text style={[styles.section, { color: colors.foreground }]}>Portefeuille</Text>
           <Card padding={14} style={{ marginTop: 8 }}>
             <Pressable
-              onPress={() => setUseWallet((u) => !u)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: useWallet }}
+              accessibilityLabel="Utiliser mon portefeuille"
+              testID="checkout-wallet-toggle"
+              onPress={toggleWallet}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
             >
               <View
@@ -583,34 +776,141 @@ export const CheckoutScreen: React.FC = () => {
                 </Text>
               ) : null}
             </Pressable>
+
+            {useWallet ? (
+              <View style={{ marginTop: 12 }}>
+                <Text style={{ color: colors.foreground, fontWeight: '600', fontSize: 13 }}>
+                  Montant à utiliser{' '}
+                  <Text style={{ color: colors.mutedForeground, fontWeight: '500' }}>
+                    (max {formatPrice(maxWalletUsage)})
+                  </Text>
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 6 }}>
+                  <Input
+                    testID="checkout-wallet-amount"
+                    value={walletInput}
+                    onChangeText={setWalletInput}
+                    onBlur={() => {
+                      const n = parseWalletAmountInput(walletInput, maxWalletUsage);
+                      setWalletInput(formatWalletAmountInput(n ?? 0));
+                    }}
+                    keyboardType="decimal-pad"
+                    placeholder="0.00"
+                    rightIcon={<Text style={{ color: colors.mutedForeground, fontWeight: '700' }}>€</Text>}
+                    showClear={false}
+                    containerStyle={{ flex: 1, marginBottom: 0 }}
+                  />
+                  <Button
+                    title="Tout"
+                    variant="outline"
+                    size="md"
+                    onPress={() => setWalletInput(formatWalletAmountInput(maxWalletUsage))}
+                  />
+                </View>
+                <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 8 }}>
+                  Saisissez un montant pour ne régler qu&apos;une partie avec le portefeuille, le
+                  reste sera payé par carte ou à la livraison.
+                </Text>
+                <View style={[styles.totalRow, { marginTop: 8 }]}>
+                  <Text style={{ color: colors.foreground, fontWeight: '600' }}>Reste à payer</Text>
+                  <Text style={{ color: colors.foreground, fontWeight: '800' }}>
+                    {formatPrice(grandTotal)}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
           </Card>
         </>
       ) : null}
 
-      <Text style={[styles.section, { color: colors.foreground }]}>Paiement</Text>
-      <Card padding={6} style={{ marginTop: 8 }}>
-        {(
-          [
-            { id: 'card' as const, label: 'Carte bancaire', Icon: CreditCard },
-            { id: 'delivery' as const, label: 'Paiement à la livraison', Icon: Wallet },
-          ] as const
-        ).map((p) => {
-          const selected = payment === p.id;
-          return (
-            <Pressable
-              key={p.id}
-              onPress={() => setPayment(p.id)}
-              style={[
-                styles.row,
-                { borderColor: selected ? colors.brandOrange : 'transparent' },
-              ]}
-            >
-              <p.Icon size={18} color={colors.foreground} />
-              <Text style={{ flex: 1, color: colors.foreground, fontWeight: '600' }}>{p.label}</Text>
-            </Pressable>
-          );
-        })}
-      </Card>
+      {paidByWalletOnly ? (
+        <>
+          <Text style={[styles.section, { color: colors.foreground }]}>Paiement</Text>
+          <Card
+            padding={12}
+            style={{
+              marginTop: 8,
+              borderColor: palette.emerald[200],
+              backgroundColor: palette.emerald[50],
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+              <CheckCircle2 size={18} color={palette.emerald[600]} style={{ marginTop: 1 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: palette.emerald[700], fontWeight: '700', fontSize: 13 }}>
+                  Commande entièrement réglée avec votre portefeuille
+                </Text>
+                <Text style={{ color: palette.emerald[700], fontSize: 12, marginTop: 2, lineHeight: 17 }}>
+                  Aucun autre moyen de paiement n&apos;est nécessaire :{' '}
+                  {formatPrice(walletApplied)} seront débités de votre solde à la confirmation.
+                </Text>
+              </View>
+            </View>
+          </Card>
+        </>
+      ) : (
+        <>
+          <Text style={[styles.section, { color: colors.foreground }]}>
+            Paiement
+            {walletApplied > 0 ? (
+              <Text style={{ color: colors.mutedForeground, fontWeight: '500' }}>
+                {' '}
+                (reste à payer : {formatPrice(grandTotal)})
+              </Text>
+            ) : null}
+          </Text>
+          <Card padding={6} style={{ marginTop: 8 }}>
+            {(
+              [
+                {
+                  id: 'card' as const,
+                  label: 'Carte bancaire',
+                  hint: 'Paiement sécurisé par Stripe',
+                  Icon: CreditCard,
+                },
+                {
+                  id: 'delivery' as const,
+                  label: 'Paiement à la livraison',
+                  hint: 'En espèces ou par carte auprès du livreur',
+                  Icon: Banknote,
+                },
+              ] as const
+            ).map((p) => {
+              const selected = payment === p.id;
+              return (
+                <Pressable
+                  key={p.id}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  onPress={() => setPayment(p.id)}
+                  style={[
+                    styles.row,
+                    { borderColor: selected ? colors.brandOrange : 'transparent' },
+                  ]}
+                >
+                  <p.Icon size={18} color={selected ? colors.brandOrange : colors.foreground} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.foreground, fontWeight: '600' }}>{p.label}</Text>
+                    <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>
+                      {p.hint}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.radio,
+                      { borderColor: selected ? colors.brandOrange : colors.border },
+                    ]}
+                  >
+                    {selected ? (
+                      <View style={[styles.radioDot, { backgroundColor: colors.brandOrange }]} />
+                    ) : null}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </Card>
+        </>
+      )}
 
       <Card padding={14} style={{ marginTop: 16 }}>
         <View style={styles.totalRow}>
@@ -647,7 +947,15 @@ export const CheckoutScreen: React.FC = () => {
           </Text>
         ) : null}
         <View style={[styles.totalRow, { marginTop: 6 }]}>
-          <Text style={{ fontSize: 16, fontWeight: '800', color: colors.foreground }}>Total à payer</Text>
+          <Text style={{ fontSize: 16, fontWeight: '800', color: colors.foreground }}>
+            {paidByWalletOnly
+              ? 'Reste à payer'
+              : walletApplied > 0
+                ? payment === 'card'
+                  ? 'À régler par carte'
+                  : 'À régler à la livraison'
+                : 'Total à payer'}
+          </Text>
           <Text style={{ fontSize: 18, fontWeight: '800', color: colors.foreground }}>
             {formatPrice(grandTotal)}
           </Text>
@@ -655,14 +963,25 @@ export const CheckoutScreen: React.FC = () => {
       </Card>
 
       <Button
-        title={user ? 'Confirmer ma commande' : 'Se connecter pour commander'}
+        title={
+          !user
+            ? 'Se connecter pour commander'
+            : zoneDisabled
+              ? 'Livraison indisponible dans votre zone'
+              : 'Confirmer ma commande'
+        }
         variant="brand"
         size="lg"
         fullWidth
         loading={placeOrder.isPending}
         disabled={!user ? false : !canProceed}
         onPress={() => (user ? placeOrder.mutate() : nav.navigate('Login'))}
-        style={{ marginTop: 20 }}
+        // Zone coupée : bouton « orange grisé » pour signaler le blocage.
+        style={
+          zoneDisabled
+            ? { marginTop: 20, backgroundColor: palette.orange[300], opacity: 1 }
+            : { marginTop: 20 }
+        }
       />
     </Screen>
   );
@@ -679,5 +998,14 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     marginBottom: 6,
   },
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioDot: { width: 10, height: 10, borderRadius: 5 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
 });
