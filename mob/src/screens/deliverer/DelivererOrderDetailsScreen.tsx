@@ -1,19 +1,31 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, Linking, Alert } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Phone, Navigation as NavigationIcon, CheckCircle2, XCircle } from 'lucide-react-native';
+import {
+  Phone,
+  Navigation as NavigationIcon,
+  CheckCircle2,
+  XCircle,
+  ShieldCheck,
+} from 'lucide-react-native';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { Loader } from '@/components/ui/Loader';
 import { Order, invokeFunction } from '@/api/entities';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useToast } from '@/hooks/useToast';
 import { formatPrice } from '@/utils/format';
+import {
+  isDeliveryCodeComplete,
+  normalizeDeliveryCode,
+  verifyDeliveryCode,
+} from '@/utils/deliveryCode';
 import type { DelivererStackParamList } from '@/navigation/types';
 
 interface OrderFull {
@@ -22,6 +34,8 @@ interface OrderFull {
   total: number;
   delivery?: { address?: string; phone?: string; lat?: number; lng?: number };
   items?: { name: string; quantity: number; unit_price: number }[];
+  /** Code à 4 chiffres remis au client — absent sur les commandes antérieures. */
+  delivery_code?: string;
 }
 
 export const DelivererOrderDetailsScreen: React.FC = () => {
@@ -30,6 +44,8 @@ export const DelivererOrderDetailsScreen: React.FC = () => {
   const { colors } = useTheme();
   const toast = useToast();
   const qc = useQueryClient();
+  const [codeInput, setCodeInput] = useState('');
+  const [codeError, setCodeError] = useState<string | null>(null);
 
   const query = useQuery<OrderFull | null>({
     queryKey: ['order', route.params.id],
@@ -46,6 +62,7 @@ export const DelivererOrderDetailsScreen: React.FC = () => {
       }
     },
     onSuccess: () => {
+      setCodeError(null);
       toast.success('Statut mis à jour');
       qc.invalidateQueries({ queryKey: ['order', route.params.id] });
       qc.invalidateQueries({ queryKey: ['deliverer-orders'] });
@@ -72,6 +89,27 @@ export const DelivererOrderDetailsScreen: React.FC = () => {
   const openNavigation = () => {
     const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
     Linking.openURL(url).catch(() => {});
+  };
+
+  /**
+   * Validation de la livraison : le livreur doit saisir le code à 4 chiffres
+   * que le client voit dans son suivi de commande (principe Uber). Les
+   * commandes créées avant cette fonctionnalité n'ont pas de code : on ne
+   * bloque pas le livreur dans ce cas, la livraison est validée directement.
+   */
+  const requiresCode = Boolean(order.delivery_code);
+
+  const confirmDelivered = () => {
+    if (!requiresCode) {
+      updateStatus.mutate('delivered');
+      return;
+    }
+    if (!verifyDeliveryCode(codeInput, order.delivery_code)) {
+      setCodeError('Code incorrect. Demandez au client le code affiché dans sa commande.');
+      return;
+    }
+    setCodeError(null);
+    updateStatus.mutate('delivered');
   };
 
   const confirmNotDelivered = () =>
@@ -123,6 +161,33 @@ export const DelivererOrderDetailsScreen: React.FC = () => {
         </View>
       </Card>
 
+      {requiresCode ? (
+        <Card padding={14} style={{ marginTop: 12, borderColor: colors.brandGreen }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <ShieldCheck size={16} color={colors.brandGreen} />
+            <Text style={{ fontWeight: '700', color: colors.foreground }}>
+              Code de confirmation
+            </Text>
+          </View>
+          <Text style={{ color: colors.mutedForeground, fontSize: 12, marginBottom: 10 }}>
+            Demandez au client les 4 chiffres affichés dans sa commande.
+          </Text>
+          <Input
+            value={codeInput}
+            onChangeText={(v) => {
+              setCodeInput(normalizeDeliveryCode(v));
+              if (codeError) setCodeError(null);
+            }}
+            placeholder="0000"
+            keyboardType="number-pad"
+            maxLength={4}
+            error={codeError ?? undefined}
+            containerStyle={{ marginBottom: 0 }}
+            style={{ fontSize: 22, fontWeight: '800', letterSpacing: 6, textAlign: 'center' }}
+          />
+        </Card>
+      ) : null}
+
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
         <Button
           title="Appeler"
@@ -149,7 +214,8 @@ export const DelivererOrderDetailsScreen: React.FC = () => {
         fullWidth
         loading={updateStatus.isPending}
         leftIcon={<CheckCircle2 size={18} color="#FFF" />}
-        onPress={() => updateStatus.mutate('delivered')}
+        disabled={requiresCode && !isDeliveryCodeComplete(codeInput)}
+        onPress={confirmDelivered}
         style={{ marginTop: 16 }}
       />
       <Button
