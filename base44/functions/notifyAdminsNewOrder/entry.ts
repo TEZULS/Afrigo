@@ -15,7 +15,13 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Missing orderId' }, { status: 400 });
     }
 
-    const paymentLabel = paymentMethod === 'card' ? 'Carte bancaire' : 'Paiement à la livraison';
+    // `wallet` : commande entièrement réglée avec le portefeuille (mobile) — rien à encaisser.
+    const paymentLabel =
+      paymentMethod === 'card'
+        ? 'Carte bancaire'
+        : paymentMethod === 'wallet'
+          ? 'Portefeuille (déjà réglé)'
+          : 'Paiement à la livraison';
 
     const admins = await base44.asServiceRole.entities.User.filter({ role: 'admin' });
 
