@@ -46,6 +46,10 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { useToast } from '@/hooks/useToast';
 import { formatDateTime, formatPrice } from '@/utils/format';
 import type { RootStackParamList } from '@/navigation/types';
+import { userErrorMessage } from '@/lib/userErrors';
+import { canRequestRefund, canRequestReturn, DEFAULT_RETURN_WINDOW_HOURS } from '@/utils/orderHelpers';
+import { useAppSettings } from '@/hooks/useAppSettings';
+import { sellingPrice } from '@/utils/productPricing';
 
 interface OrderRow {
   id: string;
@@ -82,12 +86,6 @@ interface ReturnRow {
   status?: string;
 }
 
-/** Fenêtre durant laquelle un client peut demander un retour après livraison. */
-const RETURN_WINDOW_HOURS = 2;
-/** Fenêtre pendant laquelle un client peut demander un remboursement carte
- *  après annulation (uniquement pour un paiement carte non débité au comptant). */
-const REFUND_WINDOW_HOURS = 24;
-
 type Tab = 'all' | 'active' | 'completed' | 'cancelled';
 
 const ACTIVE_STATUSES = ['pending', 'confirmed', 'preparing', 'ready', 'shipped', 'out_for_delivery'];
@@ -99,6 +97,11 @@ export const OrdersScreen: React.FC = () => {
   const { colors } = useTheme();
   const toast = useToast();
   const qc = useQueryClient();
+  const appSettings = useAppSettings();
+  const returnWindowHours =
+    Number(appSettings.data?.return_time_limit_hours) > 0
+      ? Number(appSettings.data?.return_time_limit_hours)
+      : DEFAULT_RETURN_WINDOW_HOURS;
   const [tab, setTab] = useState<Tab>('all');
   /** OrdersTab = onglet → tab bar du Tab.Navigator déjà visible.
    *  Orders (stack) = écran ouvert depuis le menu → besoin de la barre persistante. */
@@ -190,7 +193,11 @@ export const OrdersScreen: React.FC = () => {
       setCancelTarget(null);
       setCancelReason('');
     },
-    onError: (e: Error) => toast.error('Annulation impossible', e.message),
+    onError: (e: Error) =>
+      toast.error(
+        'Annulation impossible',
+        userErrorMessage(e, 'La commande n’a pas pu être annulée. Réessayez dans un instant.'),
+      ),
   });
 
   /**
@@ -217,6 +224,7 @@ export const OrdersScreen: React.FC = () => {
                   name?: string;
                   image_url?: string;
                   price?: number;
+                  price_ttc?: number | null;
                   unit?: string;
                   promotion_price?: number;
                   is_promotion?: boolean;
@@ -237,12 +245,9 @@ export const OrdersScreen: React.FC = () => {
           customer_email: user!.email,
           product_id: it.product_id,
         })) as Array<{ id: string; quantity: number }> | undefined;
+        // Prix TTC courant (`price_ttc` quand la TVA est renseignée, promo incluse).
         const livePrice =
-          prod?.is_promotion && prod?.promotion_price != null
-            ? Number(prod.promotion_price)
-            : prod?.price != null
-              ? Number(prod.price)
-              : (it.unit_price ?? 0);
+          prod?.price != null ? sellingPrice({ ...prod, price: prod.price }) : (it.unit_price ?? 0);
 
         if (existing && existing.length > 0) {
           await CartItem().update?.(existing[0]!.id, {
@@ -274,7 +279,11 @@ export const OrdersScreen: React.FC = () => {
       useCart.getState().setSource('synced');
       nav.navigate('ClientTabs', { screen: 'CartTab' });
     },
-    onError: (e: Error) => toast.error('Impossible de repasser la commande', e.message),
+    onError: (e: Error) =>
+      toast.error(
+        'Impossible de repasser la commande',
+        userErrorMessage(e, 'Les articles n’ont pas pu être remis au panier. Réessayez dans un instant.'),
+      ),
   });
 
   const refundMutation = useMutation({
@@ -303,7 +312,11 @@ export const OrdersScreen: React.FC = () => {
       setRefundTarget(null);
       setRefundMethod('');
     },
-    onError: (e: Error) => toast.error('Demande impossible', e.message),
+    onError: (e: Error) =>
+      toast.error(
+        'Demande impossible',
+        userErrorMessage(e, 'Votre demande de remboursement n’a pas pu être envoyée. Réessayez dans un instant.'),
+      ),
   });
 
   const reviewMutation = useMutation({
@@ -329,7 +342,11 @@ export const OrdersScreen: React.FC = () => {
       setReviewRating(0);
       setReviewComment('');
     },
-    onError: (e: Error) => toast.error('Envoi impossible', e.message),
+    onError: (e: Error) =>
+      toast.error(
+        'Envoi impossible',
+        userErrorMessage(e, 'Votre avis n’a pas pu être envoyé. Réessayez dans un instant.'),
+      ),
   });
 
   if (!user) {
@@ -355,31 +372,24 @@ export const OrdersScreen: React.FC = () => {
     );
   }
 
-  const hoursSince = (iso?: string): number => {
-    if (!iso) return Infinity;
-    return (Date.now() - new Date(iso).getTime()) / 36e5;
-  };
-
   const canCancel = (o: OrderRow) =>
     o.status === 'pending' || o.status === 'confirmed';
 
   /**
    * Bouton « Demande de remboursement » sur une commande annulée :
    * - status === 'cancelled'
-   * - paiement effectué par carte bancaire OU portefeuille (les commandes
-   *   payées en cash à la livraison ne donnent pas lieu à remboursement
-   *   puisqu'aucune somme n'a été prélevée)
+   * - un montant a réellement été prélevé : paiement carte abouti OU
+   *   portefeuille débité (les commandes payées en cash à la livraison ne
+   *   donnent pas lieu à remboursement puisqu'aucune somme n'a été prélevée)
+   * - le paiement n'a pas échoué : une commande annulée parce que la carte a
+   *   été refusée ou que le paiement a été abandonné n'a rien débité — ni la
+   *   carte, ni le portefeuille (débité seulement après acceptation Stripe).
+   *   Ces demandes finissaient systématiquement refusées par l'admin
+   *   (« aucun montant n'a été débité »).
    * - dans une fenêtre de 24 h après l'annulation
    * - une seule demande par commande
    */
-  const canRefund = (o: OrderRow) => {
-    if (o.status !== 'cancelled' || hasRefund(o.id)) return false;
-    const paidByCard = o.payment_method === 'card';
-    const paidByWallet = (o.wallet_amount_used ?? 0) > 0;
-    if (!paidByCard && !paidByWallet) return false;
-    const ref = o.updated_date ?? o.delivered_date;
-    return hoursSince(ref) <= REFUND_WINDOW_HOURS;
-  };
+  const canRefund = (o: OrderRow) => canRequestRefund(o, hasRefund(o.id));
 
   const canReview = (o: OrderRow) => {
     if (o.status !== 'delivered') return false;
@@ -387,16 +397,16 @@ export const OrdersScreen: React.FC = () => {
   };
 
   /**
-   * Le client peut demander un retour pendant `RETURN_WINDOW_HOURS` heures
-   * après la date de livraison. Au-delà, le bouton disparaît. Une seule
-   * demande de retour autorisée par commande.
+   * « Demander un retour » : commande livrée, dans le délai fixé par l'admin
+   * (`return_time_limit_hours`, 2 h par défaut) après la livraison, une seule
+   * demande par commande. Le polling des commandes (30 s) fait disparaître le
+   * bouton de lui-même une fois le délai écoulé.
    */
-  const canReturn = (o: OrderRow) => {
-    if (o.status !== 'delivered') return false;
-    const ref = o.delivered_date ?? o.updated_date;
-    if (hoursSince(ref) > RETURN_WINDOW_HOURS) return false;
-    return !(returnsQuery.data ?? []).some((r) => r.order_id === o.id);
-  };
+  const canReturn = (o: OrderRow) =>
+    canRequestReturn(o, {
+      alreadyRequested: (returnsQuery.data ?? []).some((r) => r.order_id === o.id),
+      windowHours: returnWindowHours,
+    });
 
   const cancelledHasNoCardRefund =
     refundTarget?.payment_method === 'card' && (refundTarget?.wallet_amount_used ?? 0) === 0;
