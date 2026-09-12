@@ -41,6 +41,7 @@ import { getBase44 } from '@/api/base44Client';
 import type { RootStackParamList } from '@/navigation/types';
 import { palette } from '@/theme/tokens';
 import { AFRIGO_APP_ICON } from '@/constants/branding';
+import { userErrorMessage } from '@/lib/userErrors';
 
 type Civility = 'M.' | 'Mme' | 'Autre' | '';
 type EditField = null | 'civility' | 'names' | 'phone' | 'address';
@@ -62,7 +63,7 @@ interface TierBenefitRow {
 }
 
 export const ProfileScreen: React.FC = () => {
-  const { user, isAuthenticated, logout, refresh } = useAuth();
+  const { user, isAuthenticated, logout, refreshUser } = useAuth();
   const { colors } = useTheme();
   const toast = useToast();
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -174,17 +175,20 @@ export const ProfileScreen: React.FC = () => {
       setSaving(true);
       try {
         await getBase44().auth.updateMe({ [field]: value } as Record<string, unknown>);
-        await refresh();
+        await refreshUser();
         setEditField(null);
         toast.success('Modification enregistrée');
         queryClient.invalidateQueries({ queryKey: ['user'] });
       } catch (e) {
-        toast.error("Impossible d'enregistrer", (e as Error).message);
+        toast.error(
+          "Impossible d'enregistrer",
+          userErrorMessage(e, 'La modification n’a pas pu être enregistrée. Réessayez dans un instant.'),
+        );
       } finally {
         setSaving(false);
       }
     },
-    [refresh, toast, queryClient],
+    [refreshUser, toast, queryClient],
   );
 
   const saveNames = useCallback(async () => {
@@ -197,15 +201,18 @@ export const ProfileScreen: React.FC = () => {
         last_name: ln,
         full_name: `${fn} ${ln}`.trim(),
       } as Record<string, unknown>);
-      await refresh();
+      await refreshUser();
       setEditField(null);
       toast.success('Nom et prénom modifiés');
     } catch (e) {
-      toast.error("Impossible d'enregistrer", (e as Error).message);
+      toast.error(
+        "Impossible d'enregistrer",
+        userErrorMessage(e, 'La modification n’a pas pu être enregistrée. Réessayez dans un instant.'),
+      );
     } finally {
       setSaving(false);
     }
-  }, [firstNameDraft, lastNameDraft, refresh, toast]);
+  }, [firstNameDraft, lastNameDraft, refreshUser, toast]);
 
   const saveAddress = useCallback(async () => {
     setSaving(true);
@@ -215,15 +222,18 @@ export const ProfileScreen: React.FC = () => {
         postal_code: postalCodeDraft.trim(),
         city: cityDraft.trim(),
       } as Record<string, unknown>);
-      await refresh();
+      await refreshUser();
       setEditField(null);
       toast.success('Adresse modifiée');
     } catch (e) {
-      toast.error("Impossible d'enregistrer", (e as Error).message);
+      toast.error(
+        "Impossible d'enregistrer",
+        userErrorMessage(e, 'La modification n’a pas pu être enregistrée. Réessayez dans un instant.'),
+      );
     } finally {
       setSaving(false);
     }
-  }, [addressDraft, postalCodeDraft, cityDraft, refresh, toast]);
+  }, [addressDraft, postalCodeDraft, cityDraft, refreshUser, toast]);
 
   const handleConvertPoints = useCallback(async () => {
     if (!userEmail) return;
@@ -263,11 +273,12 @@ export const ProfileScreen: React.FC = () => {
         ((userObj?.wallet_balance as number | undefined) ?? 0) + euroAmount;
       await getBase44().auth.updateMe({ wallet_balance: newBalance } as Record<string, unknown>);
 
-      // Refetch immédiat du solde de points + refresh du user (wallet_balance).
+      // Refetch immédiat du solde de points + rechargement silencieux du user
+      // (wallet_balance) — sans démonter la navigation.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['loyaltyPoints', userEmail] }),
         queryClient.refetchQueries({ queryKey: ['loyaltyPoints', userEmail] }),
-        refresh(),
+        refreshUser(),
       ]);
 
       toast.success(
@@ -275,11 +286,14 @@ export const ProfileScreen: React.FC = () => {
         remainingPoints > 0 ? `${remainingPoints} points restants` : 'Solde remis à 0',
       );
     } catch (e) {
-      toast.error('Conversion impossible', (e as Error).message);
+      toast.error(
+        'Conversion impossible',
+        userErrorMessage(e, 'Vos points n’ont pas pu être convertis. Réessayez dans un instant.'),
+      );
     } finally {
       setConverting(false);
     }
-  }, [userEmail, totalPoints, conversionRate, userObj, refresh, queryClient, toast]);
+  }, [userEmail, totalPoints, conversionRate, userObj, refreshUser, queryClient, toast]);
 
   const handleDeleteAccount = useCallback(() => {
     Alert.alert(
@@ -297,7 +311,10 @@ export const ProfileScreen: React.FC = () => {
               await logout();
               nav.navigate('ClientTabs', { screen: 'HomeTab' });
             } catch (e) {
-              toast.error('Suppression impossible', (e as Error).message);
+              toast.error(
+                'Suppression impossible',
+                userErrorMessage(e, 'Votre compte n’a pas pu être supprimé. Contactez le service client.'),
+              );
             } finally {
               setDeleting(false);
             }
@@ -414,9 +431,10 @@ export const ProfileScreen: React.FC = () => {
         <Text style={[styles.identityName, { color: colors.foreground }]} numberOfLines={1}>
           {fullName}
         </Text>
-        <Text style={[styles.identityEmail, { color: colors.mutedForeground }]} numberOfLines={1}>
-          {userEmail ?? ''}
-        </Text>
+        {/*
+          L'email n'est plus affiché sous le nom : il reste consultable dans
+          la carte « Mes informations » plus bas (champ « Email * »).
+        */}
         <View style={{ marginTop: 10 }}>
           <TierBadge tier={userTier} />
         </View>
@@ -943,7 +961,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   identityName: { fontSize: 22, fontWeight: '800' },
-  identityEmail: { fontSize: 13, marginTop: 4, color: '#9333EA' },
 
   statRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
   statCard: { flex: 1, borderWidth: 1 },
