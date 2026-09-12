@@ -6,7 +6,6 @@ import {
   User,
   Mail,
   Phone,
-  MapPin,
   Save,
   Lock,
   Trash2,
@@ -16,18 +15,28 @@ import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { AddressAutocomplete } from '@/components/ui/AddressAutocomplete';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useAuth } from '@/lib/AuthContext';
+import { CIVILITY_OPTIONS, type Civility } from '@/utils/civility';
 import { useToast } from '@/hooks/useToast';
 import { getBase44 } from '@/api/base44Client';
 import { invokeFunction } from '@/api/entities';
 import type { RootStackParamList } from '@/navigation/types';
+import type { AddressSuggestion } from '@/services/addressAutocomplete';
+import { authErrorMessage } from '@/lib/authErrors';
+import { userErrorMessage } from '@/lib/userErrors';
 
-type Civility = '' | 'M.' | 'Mme' | 'Mlle';
+/*
+ * Valeurs d'état civil reconnues par base44 — identiques à celles du
+ * back-office web. « Mlle » n'en fait pas partie : une valeur hors liste
+ * n'est pas reconnue par les écrans admin.
+ */
+type CivilityValue = Civility | '';
 
 interface ProfileFormState {
-  civility: Civility;
+  civility: CivilityValue;
   first_name: string;
   last_name: string;
   phone: string;
@@ -41,7 +50,7 @@ function pickInitial(user: Record<string, unknown> | null): ProfileFormState {
   const fullName = (u.full_name as string | undefined) ?? '';
   const [fn, ...rest] = fullName.split(' ');
   return {
-    civility: ((u.civility as Civility) ?? '') as Civility,
+    civility: ((u.civility as CivilityValue) ?? '') as CivilityValue,
     first_name: (u.first_name as string | undefined) ?? fn ?? '',
     last_name: (u.last_name as string | undefined) ?? rest.join(' '),
     phone: (u.phone as string | undefined) ?? '',
@@ -74,6 +83,16 @@ export const ProfileEditScreen: React.FC = () => {
     },
     [],
   );
+
+  /** Suggestion d'adresse choisie : remplit rue + code postal + ville. */
+  const applyAddressSuggestion = useCallback((s: AddressSuggestion) => {
+    setForm((p) => ({
+      ...p,
+      address: s.street || p.address,
+      postal_code: s.postalCode || p.postal_code,
+      city: s.city || p.city,
+    }));
+  }, []);
 
   const validate = (): string | null => {
     if (!form.first_name.trim()) return 'Le prénom est obligatoire.';
@@ -110,7 +129,10 @@ export const ProfileEditScreen: React.FC = () => {
       toast.success('Profil mis à jour');
       nav.goBack();
     } catch (e) {
-      toast.error('Mise à jour impossible', (e as Error).message);
+      toast.error(
+        'Mise à jour impossible',
+        userErrorMessage(e, 'Vos informations n’ont pas pu être enregistrées. Réessayez dans un instant.'),
+      );
     } finally {
       setSaving(false);
     }
@@ -127,22 +149,26 @@ export const ProfileEditScreen: React.FC = () => {
     }
     setPwdBusy(true);
     try {
-      const res = (await invokeFunction<{ data?: { success?: boolean; error?: string } }>(
+      type ChangePasswordResult = { success?: boolean; error?: string };
+      // `invokeFunction` renvoie le corps JSON ; on tolère encore l'ancienne
+      // forme enveloppée (`{ data: … }`) par prudence.
+      const res = (await invokeFunction<ChangePasswordResult & { data?: ChangePasswordResult }>(
         'handleCustomAuth',
         {
           action: 'change_password',
           currentPassword: currentPwd || undefined,
           newPassword: newPwd,
         },
-      )) as { data?: { success?: boolean; error?: string } } | undefined;
-      const ok = res?.data?.success ?? true;
-      if (!ok) throw new Error(res?.data?.error ?? 'Erreur inconnue');
+      )) as (ChangePasswordResult & { data?: ChangePasswordResult }) | undefined;
+      const body = res?.data ?? res;
+      const ok = body?.success ?? true;
+      if (!ok) throw new Error(body?.error ?? 'Erreur inconnue');
       toast.success('Mot de passe modifié');
       setCurrentPwd('');
       setNewPwd('');
       setConfirmPwd('');
     } catch (e) {
-      toast.error('Changement impossible', (e as Error).message);
+      toast.error('Changement impossible', authErrorMessage(e));
     } finally {
       setPwdBusy(false);
     }
@@ -164,7 +190,10 @@ export const ProfileEditScreen: React.FC = () => {
               await logout();
               nav.navigate('ClientTabs', { screen: 'HomeTab' });
             } catch (e) {
-              toast.error('Suppression impossible', (e as Error).message);
+              toast.error(
+                'Suppression impossible',
+                userErrorMessage(e, 'Votre compte n’a pas pu être supprimé. Contactez le service client.'),
+              );
             } finally {
               setDelBusy(false);
             }
@@ -200,7 +229,7 @@ export const ProfileEditScreen: React.FC = () => {
       <Card padding={14}>
         <Text style={[styles.label, { color: colors.mutedForeground }]}>Civilité</Text>
         <View style={styles.civRow}>
-          {(['M.', 'Mme', 'Mlle'] as const).map((c) => {
+          {CIVILITY_OPTIONS.map((c) => {
             const selected = form.civility === c;
             return (
               <Pressable
@@ -260,12 +289,11 @@ export const ProfileEditScreen: React.FC = () => {
 
       <Text style={[styles.section, { color: colors.foreground }]}>Adresse de livraison</Text>
       <Card padding={14}>
-        <Input
-          label="Adresse"
+        <AddressAutocomplete
           value={form.address}
           onChangeText={(v) => update('address', v)}
-          placeholder="12 rue de la République"
-          leftIcon={<MapPin size={16} color={colors.mutedForeground} />}
+          onSelectSuggestion={applyAddressSuggestion}
+          postalCode={form.postal_code}
         />
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Input
