@@ -3,20 +3,20 @@ import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Home, ShoppingBag, ShoppingCart, User, Menu } from 'lucide-react-native';
+import { Home, ShoppingBag, ShoppingCart, Search, Bell } from 'lucide-react-native';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette } from '@/theme/tokens';
 import { useCart } from '@/stores/cart';
-import { useMenuDrawer } from '@/stores/menuDrawer';
+import { useNotificationsFeed } from '@/hooks/useNotificationsFeed';
 import type { RootStackParamList } from '@/navigation/types';
 import type { IconComponent } from '@/types/icon';
 
 /**
  * Mapping nom de route stack → onglet logique pour le highlight visuel.
  * Une route comme `MyRefunds` ou `Payment` est ouverte depuis le menu mais
- * appartient logiquement à `Commandes` ou `Profil`.
+ * appartient logiquement à `Commandes` ou `Panier`.
  */
-const ROUTE_TO_TAB: Record<string, 'home' | 'orders' | 'cart' | 'profile' | 'menu'> = {
+const ROUTE_TO_TAB: Record<string, 'home' | 'orders' | 'cart' | 'search' | 'notifications'> = {
   Home: 'home',
   HomeTab: 'home',
   ProductDetails: 'home',
@@ -34,14 +34,10 @@ const ROUTE_TO_TAB: Record<string, 'home' | 'orders' | 'cart' | 'profile' | 'men
   CartTab: 'cart',
   Checkout: 'cart',
   Payment: 'cart',
-  PaymentMethods: 'profile',
-  Profile: 'profile',
-  ProfileTab: 'profile',
-  ProfileEdit: 'profile',
-  Contact: 'profile',
-  Messages: 'profile',
-  CustomerMessages: 'profile',
-  MenuTab: 'menu',
+  SearchTab: 'search',
+  Search: 'search',
+  Notifications: 'notifications',
+  NotificationsTab: 'notifications',
 };
 
 interface TabBtnProps {
@@ -102,7 +98,7 @@ export const PersistentBottomNav: React.FC = () => {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const cartCount = useCart((s) => s.lines.reduce((acc, l) => acc + l.quantity, 0));
-  const openMenu = useMenuDrawer((s) => s.open);
+  const { unreadCount } = useNotificationsFeed();
 
   const activeTab = ROUTE_TO_TAB[route.name] ?? null;
   const bottomPad = Math.max(insets.bottom, Platform.OS === 'ios' ? 10 : 8);
@@ -138,16 +134,17 @@ export const PersistentBottomNav: React.FC = () => {
         onPress={() => nav.navigate('ClientTabs', { screen: 'CartTab' })}
       />
       <TabBtn
-        Icon={User}
-        label="Profil"
-        active={activeTab === 'profile'}
-        onPress={() => nav.navigate('ClientTabs', { screen: 'ProfileTab' })}
+        Icon={Search}
+        label="Recherche"
+        active={activeTab === 'search'}
+        onPress={() => nav.navigate('Search')}
       />
       <TabBtn
-        Icon={Menu}
-        label="Menu"
-        active={false}
-        onPress={() => openMenu(null)}
+        Icon={Bell}
+        label="Notifications"
+        active={activeTab === 'notifications'}
+        badge={unreadCount}
+        onPress={() => nav.navigate('ClientTabs', { screen: 'NotificationsTab' })}
       />
     </View>
   );
