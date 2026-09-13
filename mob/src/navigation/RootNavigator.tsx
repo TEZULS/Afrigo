@@ -14,14 +14,17 @@ import { ClientTabs } from './ClientTabs';
 import { AdminDrawer } from './AdminDrawer';
 import { DelivererStack } from './DelivererStack';
 import { linking } from './linking';
+import { navigationRef } from './navigationRef';
 import type { RootStackParamList } from './types';
 
+import { SearchScreen } from '@/screens/client/SearchScreen';
 import { ProductDetailsScreen } from '@/screens/client/ProductDetailsScreen';
 import { CheckoutScreen } from '@/screens/client/CheckoutScreen';
 import { PaymentScreen } from '@/screens/client/PaymentScreen';
 import { OrderDetailsScreen } from '@/screens/client/OrderDetailsScreen';
 import { AllReviewsScreen } from '@/screens/client/AllReviewsScreen';
 import { PromotionsScreen } from '@/screens/client/PromotionsScreen';
+import { RecipesScreen } from '@/screens/client/RecipesScreen';
 import { HabitualProductsScreen } from '@/screens/client/HabitualProductsScreen';
 import { ReturnsScreen } from '@/screens/client/ReturnsScreen';
 import { MyReturnsScreen } from '@/screens/client/MyReturnsScreen';
@@ -32,9 +35,11 @@ import { MessagesScreen } from '@/screens/client/MessagesScreen';
 import { ContactScreen } from '@/screens/client/ContactScreen';
 import { PaymentMethodsScreen } from '@/screens/client/PaymentMethodsScreen';
 import { CustomerMessagesScreen } from '@/screens/client/CustomerMessagesScreen';
+import { NotificationsScreen } from '@/screens/client/NotificationsScreen';
 import { OrdersScreen } from '@/screens/client/OrdersScreen';
 import { ProfileScreen } from '@/screens/client/ProfileScreen';
 import { ProfileEditScreen } from '@/screens/client/ProfileEditScreen';
+import { SettingsScreen } from '@/screens/client/SettingsScreen';
 import { AdminLoginScreen } from '@/screens/admin/AdminLoginScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -58,6 +63,7 @@ export const RootNavigator: React.FC = () => {
 
   return (
     <NavigationContainer
+      ref={navigationRef}
       linking={linking}
       theme={{
         dark: scheme === 'dark',
@@ -87,6 +93,12 @@ export const RootNavigator: React.FC = () => {
       >
         <Stack.Screen name="ClientTabs" component={ClientTabs} />
 
+        <Stack.Screen
+          name="Search"
+          component={SearchScreen}
+          options={{ animation: 'fade' }}
+        />
+
         <Stack.Group screenOptions={{ animation: 'slide_from_right' }}>
           <Stack.Screen name="ProductDetails" component={ProductDetailsScreen} />
           <Stack.Screen name="Checkout" component={CheckoutScreen} />
@@ -95,7 +107,9 @@ export const RootNavigator: React.FC = () => {
           <Stack.Screen name="OrderDetails" component={OrderDetailsScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />
+          <Stack.Screen name="Settings" component={SettingsScreen} />
           <Stack.Screen name="Promotions" component={PromotionsScreen} />
+          <Stack.Screen name="Recipes" component={RecipesScreen} />
           <Stack.Screen name="AllReviews" component={AllReviewsScreen} />
           <Stack.Screen name="HabitualProducts" component={HabitualProductsScreen} />
           <Stack.Screen name="Returns" component={ReturnsScreen} />
@@ -107,6 +121,7 @@ export const RootNavigator: React.FC = () => {
           <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
           <Stack.Screen name="Messages" component={MessagesScreen} />
           <Stack.Screen name="CustomerMessages" component={CustomerMessagesScreen} />
+          <Stack.Screen name="Notifications" component={NotificationsScreen} />
         </Stack.Group>
 
         <Stack.Group screenOptions={{ presentation: 'modal' }}>

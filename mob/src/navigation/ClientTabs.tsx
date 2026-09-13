@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Platform, StyleSheet, Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Home, ShoppingBag, ShoppingCart, Menu, User } from 'lucide-react-native';
+import { Home, ShoppingBag, ShoppingCart, Menu, User, Search, Bell } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette } from '@/theme/tokens';
@@ -10,9 +10,12 @@ import { OrdersScreen } from '@/screens/client/OrdersScreen';
 import { CartScreen } from '@/screens/client/CartScreen';
 import { ProfileScreen } from '@/screens/client/ProfileScreen';
 import { MenuScreen } from '@/screens/client/MenuScreen';
+import { NotificationsScreen } from '@/screens/client/NotificationsScreen';
 import { useCart } from '@/stores/cart';
+import { useNotificationsFeed } from '@/hooks/useNotificationsFeed';
 import { useMenuDrawer, type MenuActiveRoute } from '@/stores/menuDrawer';
-import type { ClientTabParamList } from './types';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { ClientTabParamList, RootStackParamList } from './types';
 import type { LucideProps } from 'lucide-react-native';
 
 const Tab = createBottomTabNavigator<ClientTabParamList>();
@@ -86,6 +89,7 @@ export const ClientTabs: React.FC = () => {
   const bottomPad = Math.max(insets.bottom, Platform.OS === 'ios' ? 10 : 8);
   const cartLines = useCart((s) => s.lines);
   const cartCount = cartLines.reduce((acc, l) => acc + l.quantity, 0);
+  const { unreadCount } = useNotificationsFeed();
 
   return (
     <Tab.Navigator
@@ -152,11 +156,50 @@ export const ClientTabs: React.FC = () => {
           ),
         }}
       />
+      {/*
+        Onglet 🔍 : ouvre l'écran de recherche plein écran (route racine
+        `Search`) — champ + suggestions du catalogue + historique. Le profil
+        reste accessible depuis le menu latéral (bouton ☰ en haut de l'accueil).
+      */}
+      <Tab.Screen
+        name="SearchTab"
+        component={HomeScreen}
+        options={{
+          title: 'Recherche',
+          tabBarIcon: ({ color, focused }) => (
+            <TabGlyph Icon={Search} focused={focused} color={color} />
+          ),
+        }}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            e.preventDefault();
+            navigation.getParent<NativeStackNavigationProp<RootStackParamList>>()?.navigate('Search');
+          },
+        })}
+      />
+      <Tab.Screen
+        name="NotificationsTab"
+        component={NotificationsScreen}
+        options={{
+          title: 'Notifications',
+          tabBarIcon: ({ color, focused }) => (
+            <TabGlyph Icon={Bell} focused={focused} color={color} badge={unreadCount} />
+          ),
+        }}
+      />
+
+      {/*
+        Écrans conservés hors barre (`tabBarItemStyle: display none`) : le
+        menu est désormais un bouton ☰ en haut de l'accueil, et le profil
+        s'ouvre depuis ce menu. Les routes restent déclarées pour que les
+        navigations existantes (`ClientTabs > ProfileTab`) fonctionnent encore.
+      */}
       <Tab.Screen
         name="ProfileTab"
         component={ProfileScreen}
         options={{
           title: 'Profil',
+          tabBarItemStyle: { display: 'none' },
           tabBarIcon: ({ color, focused }) => (
             <TabGlyph Icon={User} focused={focused} color={color} />
           ),
@@ -167,6 +210,7 @@ export const ClientTabs: React.FC = () => {
         component={MenuScreen}
         options={{
           title: 'Menu',
+          tabBarItemStyle: { display: 'none' },
           tabBarIcon: ({ color, focused }) => (
             <TabGlyph Icon={Menu} focused={focused} color={color} />
           ),
