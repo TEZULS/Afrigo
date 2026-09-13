@@ -4,13 +4,14 @@ import {
   Text,
   FlatList,
   StyleSheet,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   TextInput,
-  Pressable,
   Linking,
   Alert,
 } from 'react-native';
+import { Pressable } from '@/components/ui/Pressable';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -48,6 +49,23 @@ export const MessagesScreen: React.FC = () => {
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const inputRef = useRef<TextInput>(null);
   const [text, setText] = useState('');
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  /**
+   * Quand le clavier est ouvert, la zone « safe area » du bas (home indicator)
+   * est recouverte par le clavier : conserver `insets.bottom` en padding
+   * créait un large espace blanc entre le composer et le clavier.
+   */
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvt, () => setKeyboardOpen(true));
+    const hideSub = Keyboard.addListener(hideEvt, () => setKeyboardOpen(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const supportPhone = settings.data?.support_phone ?? '';
 
@@ -234,7 +252,7 @@ export const MessagesScreen: React.FC = () => {
         {
           borderTopColor: colors.border,
           backgroundColor: colors.background,
-          paddingBottom: Math.max(insets.bottom, 8),
+          paddingBottom: keyboardOpen ? 8 : Math.max(insets.bottom, 8),
         },
       ]}
     >
@@ -312,11 +330,14 @@ export const MessagesScreen: React.FC = () => {
         <Text style={[styles.backTxt, { color: colors.foreground }]}>Retour au contact</Text>
       </Pressable>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior="padding"
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
-      >
+      {/*
+        `keyboardVerticalOffset` doit rester à 0 : le KAV démarre déjà sous le
+        header et sa bordure basse touche le bas de l'écran. Toute valeur > 0
+        est ajoutée telle quelle au padding calculé (RN soustrait l'offset de
+        la position du clavier) — l'ancien `100` créait donc 100 px de blanc
+        entre le composer et le clavier.
+      */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={0}>
         {ServiceBanner}
 
         {query.isLoading ? (
