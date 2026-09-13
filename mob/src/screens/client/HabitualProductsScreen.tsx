@@ -13,6 +13,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { remoteDecrementAfterRemove, remoteUpsertAfterAdd } from '@/lib/cartRemote';
 import { useCart } from '@/stores/cart';
 import type { RootStackParamList } from '@/navigation/types';
+import { sellingPrice } from '@/utils/productPricing';
 
 export const HabitualProductsScreen: React.FC = () => {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -80,8 +81,7 @@ export const HabitualProductsScreen: React.FC = () => {
                   productId: p.id,
                   name: p.name,
                   imageUrl: p.image_url,
-                  unitPrice:
-                    p.is_promotion && p.promotion_price != null ? p.promotion_price : p.price,
+                  unitPrice: sellingPrice(p),
                   category: p.category,
                   unit: p.unit,
                 };

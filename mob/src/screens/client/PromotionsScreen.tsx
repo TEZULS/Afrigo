@@ -13,6 +13,7 @@ import { remoteDecrementAfterRemove, remoteUpsertAfterAdd } from '@/lib/cartRemo
 import { useAuth } from '@/lib/AuthContext';
 import { useCart } from '@/stores/cart';
 import type { RootStackParamList } from '@/navigation/types';
+import { sellingPrice } from '@/utils/productPricing';
 
 export const PromotionsScreen: React.FC = () => {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -52,8 +53,7 @@ export const PromotionsScreen: React.FC = () => {
                   productId: p.id,
                   name: p.name,
                   imageUrl: p.image_url,
-                  unitPrice:
-                    p.is_promotion && p.promotion_price != null ? p.promotion_price : p.price,
+                  unitPrice: sellingPrice(p),
                   category: p.category,
                   unit: p.unit,
                 };
