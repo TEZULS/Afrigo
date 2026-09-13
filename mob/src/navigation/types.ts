@@ -8,6 +8,15 @@ export type ClientTabParamList = {
   HomeTab: undefined;
   OrdersTab: undefined;
   CartTab: undefined;
+  /** Onglet 🔍 : ouvre l'écran de recherche plein écran (route racine `Search`). */
+  SearchTab: undefined;
+  /** Onglet 🔔 : fil de notifications (suivi commandes + service client). */
+  NotificationsTab: undefined;
+  /**
+   * Conservés pour la navigation programmatique (menu latéral, deep links) :
+   * ces onglets ne sont plus affichés dans la barre du bas depuis que le
+   * menu est passé en haut de l'accueil.
+   */
   ProfileTab: undefined;
   MenuTab: undefined;
 };
@@ -35,10 +44,19 @@ export type RootStackParamList = {
 
   // Client
   ClientTabs: NavigatorScreenParams<ClientTabParamList>;
+  /** Recherche plein écran (suggestions + historique). */
+  Search: undefined;
   ProductDetails: { id: string };
   Promotions: undefined;
-  Checkout: undefined;
-  Payment: { orderId: string; amount: number };
+  /** Recettes d'Afrique : liste des pays, recettes d'un pays, détail. */
+  Recipes: { country?: string; recipeId?: string } | undefined;
+  /** `lineKeys` : lignes du panier cochées (`cartLineKey`) ; absent = tout le panier. */
+  Checkout: { lineKeys?: string[] } | undefined;
+  /**
+   * `amount` = reste à régler par carte ; `walletAmount` = part réglée par le
+   * portefeuille, débitée seulement une fois le paiement carte confirmé.
+   */
+  Payment: { orderId: string; amount: number; walletAmount?: number; lineKeys?: string[] };
   PaymentMethods: undefined;
   Orders: undefined;
   OrderDetails: { id: string };
@@ -52,8 +70,11 @@ export type RootStackParamList = {
   Contact: undefined;
   Messages: undefined;
   CustomerMessages: { customerId?: string } | undefined;
+  Notifications: undefined;
   Profile: undefined;
   ProfileEdit: undefined;
+  /** Page « Paramètres » : Paiement / Mes retours / Mes remboursements. */
+  Settings: undefined;
 
   // Auth
   Login: { initialMode?: 'login' | 'register' } | undefined;
