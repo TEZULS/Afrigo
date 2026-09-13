@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable, Linking, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, Linking, Alert, Platform } from 'react-native';
+import { Pressable } from '@/components/ui/Pressable';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Headphones, Phone, Mail, MessageCircle, ArrowLeft, ChevronRight } from 'lucide-react-native';
@@ -125,6 +126,14 @@ export const ContactScreen: React.FC = () => {
         </Text>
       </View>
 
+      <View style={[styles.betaCard, { backgroundColor: palette.orange[50], borderColor: palette.orange[100] }]}>
+        <Text style={[styles.betaTitle, { color: palette.orange[700] }]}>Testeurs bêta</Text>
+        <Text style={[styles.betaBody, { color: palette.orange[900] }]}>
+          Merci de tester AfriGo ! Signalez un bug via le chat ci-dessous, par email, ou laissez un
+          avis privé dans le Play Store (menu de l&apos;app → Aide et commentaires).
+        </Text>
+      </View>
+
       <View style={{ gap: 12, marginTop: 8 }}>
         <ContactCard
           Icon={Phone}
@@ -180,6 +189,16 @@ const styles = StyleSheet.create({
   },
   heroTitle: { fontSize: 22, fontWeight: '800' },
   heroSubtitle: { fontSize: 14, textAlign: 'center' },
+
+  betaCard: {
+    marginTop: 4,
+    marginBottom: 4,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  betaTitle: { fontSize: 14, fontWeight: '800', marginBottom: 6 },
+  betaBody: { fontSize: 13, lineHeight: 19 },
 
   cardPressable: {
     borderRadius: 16,

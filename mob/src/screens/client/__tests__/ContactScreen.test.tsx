@@ -67,4 +67,10 @@ describe('ContactScreen', () => {
     expect(screen.getByText('Appuyez pour envoyer un email')).toBeTruthy();
     expect(screen.getByText('Échangez directement avec notre équipe')).toBeTruthy();
   });
+
+  it('guide les testeurs bêta vers les canaux de feedback', async () => {
+    renderWithProviders(wrap(<ContactScreen />));
+    await waitFor(() => expect(screen.getByText('Testeurs bêta')).toBeTruthy());
+    expect(screen.getByText(/avis privé dans le Play Store/i)).toBeTruthy();
+  });
 });
