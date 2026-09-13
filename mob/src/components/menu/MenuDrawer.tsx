@@ -24,11 +24,10 @@ import {
   Home,
   User,
   ShoppingBag,
-  CreditCard,
-  RotateCcw,
-  Banknote,
   Star,
+  ChefHat,
   Phone,
+  Settings as SettingsIcon,
   X,
 } from 'lucide-react-native';
 import { useMenuDrawer, type MenuActiveRoute } from '@/stores/menuDrawer';
@@ -116,6 +115,13 @@ export const MenuDrawer: React.FC = () => {
 
   if (!visible && !isOpen) return null;
 
+  /**
+   * Ordre demandé : Accueil / Mon profil / Mes recettes / Mes commandes /
+   * Avis clients / Nous contacter / Paramètres.
+   *
+   * Paiement, Mes retours et Mes remboursements ont quitté ce menu : ils sont
+   * regroupés dans « Paramètres » (`SettingsScreen`).
+   */
   const items: DrawerItem[] = [
     {
       label: 'Accueil',
@@ -135,6 +141,11 @@ export const MenuDrawer: React.FC = () => {
         ),
     },
     {
+      label: 'Mes recettes',
+      Icon: ChefHat,
+      onPress: () => navigateThen(() => nav.navigate('Recipes')),
+    },
+    {
       label: 'Mes commandes',
       Icon: ShoppingBag,
       matchTab: 'OrdersTab',
@@ -143,21 +154,6 @@ export const MenuDrawer: React.FC = () => {
           () => nav.navigate('ClientTabs', { screen: 'OrdersTab' }),
           true,
         ),
-    },
-    {
-      label: 'Paiement',
-      Icon: CreditCard,
-      onPress: () => navigateThen(() => nav.navigate('PaymentMethods'), true),
-    },
-    {
-      label: 'Mes retours',
-      Icon: RotateCcw,
-      onPress: () => navigateThen(() => nav.navigate('MyReturns'), true),
-    },
-    {
-      label: 'Mes remboursements',
-      Icon: Banknote,
-      onPress: () => navigateThen(() => nav.navigate('MyRefunds'), true),
     },
     {
       label: 'Avis clients',
@@ -169,6 +165,11 @@ export const MenuDrawer: React.FC = () => {
       label: 'Nous contacter',
       Icon: Phone,
       onPress: () => navigateThen(() => nav.navigate('Contact'), true),
+    },
+    {
+      label: 'Paramètres',
+      Icon: SettingsIcon,
+      onPress: () => navigateThen(() => nav.navigate('Settings')),
     },
   ];
 
@@ -268,7 +269,7 @@ export const MenuDrawer: React.FC = () => {
                 <Text
                   style={[
                     styles.rowLabel,
-                    { color: colors.foreground, fontWeight: isActive ? '700' : '500' },
+                    { color: colors.foreground, fontWeight: isActive ? '800' : '700' },
                   ]}
                   numberOfLines={1}
                 >
@@ -340,6 +341,7 @@ const styles = StyleSheet.create({
   rowLabel: {
     flex: 1,
     fontSize: 16,
-    fontWeight: '500',
+    // Libellés en gras (demande client) ; l'entrée active est encore plus appuyée.
+    fontWeight: '700',
   },
 });
