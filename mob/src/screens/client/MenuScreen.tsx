@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable, Platform, Image as RNImage } from 'react-native';
+import { View, Text, StyleSheet, Platform, Image as RNImage } from 'react-native';
+import { Pressable } from '@/components/ui/Pressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -7,11 +8,10 @@ import {
   Home,
   User,
   ShoppingBag,
-  CreditCard,
-  RotateCcw,
-  Banknote,
   Star,
+  ChefHat,
   Phone,
+  Settings as SettingsIcon,
   ShieldCheck,
   ChevronRight,
   Truck,
@@ -53,15 +53,23 @@ export const MenuScreen: React.FC = () => {
   };
 
   /**
-   * Items du side menu qui correspondent au screenshot:
-   * Accueil / Mon profil / Mes commandes / Paiement / Mes retours /
-   * Mes remboursements / Avis clients / Nous contacter
+   * Même ordre que le menu latéral (`MenuDrawer`) :
+   * Accueil / Mes recettes / Mon profil / Mes commandes / Avis clients /
+   * Nous contacter / Paramètres.
+   *
+   * Paiement, Mes retours et Mes remboursements sont regroupés dans
+   * « Paramètres » (`SettingsScreen`).
    */
   const items: MenuItem[] = [
     {
       label: 'Accueil',
       Icon: Home,
       onPress: () => nav.navigate('ClientTabs', { screen: 'HomeTab' }),
+    },
+    {
+      label: 'Mes recettes',
+      Icon: ChefHat,
+      onPress: () => nav.navigate('Recipes'),
     },
     {
       label: 'Mon profil',
@@ -75,21 +83,6 @@ export const MenuScreen: React.FC = () => {
       onPress: () => requireAuth(() => nav.navigate('Orders')),
     },
     {
-      label: 'Paiement',
-      Icon: CreditCard,
-      onPress: () => requireAuth(() => nav.navigate('Payment', { orderId: '', amount: 0 })),
-    },
-    {
-      label: 'Mes retours',
-      Icon: RotateCcw,
-      onPress: () => requireAuth(() => nav.navigate('MyReturns')),
-    },
-    {
-      label: 'Mes remboursements',
-      Icon: Banknote,
-      onPress: () => requireAuth(() => nav.navigate('MyRefunds')),
-    },
-    {
       label: 'Avis clients',
       Icon: Star,
       onPress: () => requireAuth(() => nav.navigate('AllReviews', { productId: '' })),
@@ -98,6 +91,11 @@ export const MenuScreen: React.FC = () => {
       label: 'Nous contacter',
       Icon: Phone,
       onPress: () => requireAuth(() => nav.navigate('Messages')),
+    },
+    {
+      label: 'Paramètres',
+      Icon: SettingsIcon,
+      onPress: () => nav.navigate('Settings'),
     },
   ];
 
