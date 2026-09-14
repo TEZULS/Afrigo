@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { MapPin, CreditCard, Truck, CheckCircle, ArrowLeft, Package, Tag, Banknote, Calendar, Clock, Pencil, AlertCircle } from 'lucide-react';
 import DeliveryScheduleInfo from '@/components/checkout/DeliveryScheduleInfo';
+import { generateDeliveryCode } from '@/lib/deliveryCode';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -73,7 +74,9 @@ function PaymentForm({ onSuccess, amount, formData, cartItems, user, loyaltySett
         delivery_city: formData.city,
         notes: formData.notes,
         estimated_delivery: formData.delivery_date,
-        delivery_time: formData.delivery_time
+        delivery_time: formData.delivery_time,
+        // Code à 4 chiffres que le client communiquera au livreur à la remise.
+        delivery_code: generateDeliveryCode()
       });
 
       // Étape 2 : Créer le PaymentIntent avec l'order_id dans les métadonnées
@@ -638,7 +641,9 @@ export default function Checkout() {
         delivery_city: formData.city,
         notes: formData.notes,
         estimated_delivery: formData.delivery_date,
-        delivery_time: formData.delivery_time
+        delivery_time: formData.delivery_time,
+        // Code à 4 chiffres que le client communiquera au livreur à la remise.
+        delivery_code: generateDeliveryCode()
       });
 
       // Enregistrer l'utilisation du code promo
