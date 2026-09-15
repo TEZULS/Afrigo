@@ -17,12 +17,14 @@ import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { isDeliveryCodeComplete, verifyDeliveryCode, normalizeDeliveryCode } from '@/lib/deliveryCode';
 
 export default function DelivererOrderDetails() {
   const [user, setUser] = useState(null);
   const [dialogType, setDialogType] = useState(null); // 'delivered' ou 'failed'
   const [failureReason, setFailureReason] = useState('');
   const [confirmedAmount, setConfirmedAmount] = useState('');
+  const [deliveryCodeInput, setDeliveryCodeInput] = useState('');
   const [showGpsDialog, setShowGpsDialog] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -108,6 +110,7 @@ export default function DelivererOrderDetails() {
         toast.success('Statut de livraison mis à jour');
         setDialogType(null);
         setFailureReason('');
+        setDeliveryCodeInput('');
         navigate(createPageUrl('DelivererDashboard') + `?token=${token}`);
       }
     },
@@ -121,6 +124,16 @@ export default function DelivererOrderDetails() {
   };
 
   const handleDelivered = () => {
+    /**
+     * Code de confirmation à 4 chiffres : le client le lit dans sa commande et
+     * le donne au livreur à la remise. Les commandes créées avant cette
+     * fonctionnalité n'ont pas de code — on ne bloque pas le livreur.
+     */
+    if (order.delivery_code && !verifyDeliveryCode(deliveryCodeInput, order.delivery_code)) {
+      toast.error('❌ Code de confirmation incorrect. Demandez au client les 4 chiffres affichés dans sa commande.');
+      return;
+    }
+
     // Vérifier si c'est un paiement en espèces
     if (order.payment_method === 'delivery') {
       const enteredAmount = parseFloat(confirmedAmount);
@@ -469,6 +482,7 @@ export default function DelivererOrderDetails() {
       <Dialog open={dialogType === 'delivered'} onOpenChange={() => {
         setDialogType(null);
         setConfirmedAmount('');
+        setDeliveryCodeInput('');
       }}>
         <DialogContent>
           <DialogHeader>
@@ -478,6 +492,34 @@ export default function DelivererOrderDetails() {
             <p className="text-slate-700">
               Confirmez-vous avoir livré cette commande au client ?
             </p>
+            {order.delivery_code && (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                <Label htmlFor="delivery-code" className="text-base font-semibold text-emerald-900">
+                  Code de confirmation du client *
+                </Label>
+                <p className="text-sm text-emerald-800 mt-1 mb-2">
+                  Demandez au client les 4 chiffres affichés dans sa commande.
+                </p>
+                <Input
+                  id="delivery-code"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={deliveryCodeInput}
+                  onChange={(e) => setDeliveryCodeInput(normalizeDeliveryCode(e.target.value))}
+                  placeholder="0000"
+                  className={`text-2xl font-bold tracking-[0.5em] text-center ${
+                    isDeliveryCodeComplete(deliveryCodeInput) &&
+                    !verifyDeliveryCode(deliveryCodeInput, order.delivery_code)
+                      ? 'border-rose-500 focus:ring-rose-500'
+                      : ''
+                  }`}
+                />
+                {isDeliveryCodeComplete(deliveryCodeInput) &&
+                  !verifyDeliveryCode(deliveryCodeInput, order.delivery_code) && (
+                    <p className="text-sm text-rose-600 mt-2 font-medium">❌ Code incorrect</p>
+                  )}
+              </div>
+            )}
             {order.payment_method === 'delivery' && (
               <div className="space-y-4">
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
@@ -531,12 +573,17 @@ export default function DelivererOrderDetails() {
             <Button variant="outline" onClick={() => {
               setDialogType(null);
               setConfirmedAmount('');
+              setDeliveryCodeInput('');
             }}>
               Annuler
             </Button>
             <Button
               onClick={handleDelivered}
-              disabled={updateOrderMutation.isPending || (order.payment_method === 'delivery' && !confirmedAmount)}
+              disabled={
+                updateOrderMutation.isPending ||
+                (order.payment_method === 'delivery' && !confirmedAmount) ||
+                (order.delivery_code && !isDeliveryCodeComplete(deliveryCodeInput))
+              }
               className="bg-green-600 hover:bg-green-700"
             >
               {updateOrderMutation.isPending ? 'Confirmation...' : 'Confirmer la livraison'}
