@@ -4,6 +4,9 @@
 // Polyfill: certains modules attendent global.window
 require('react-native-gesture-handler/jestSetup');
 
+// Worklets doit être mocké avant Reanimated (Reanimated 4 / SDK 55).
+jest.mock('react-native-worklets', () => require('react-native-worklets/src/mock'));
+
 // Reanimated mock — recommandé par la doc Reanimated.
 jest.mock('react-native-reanimated', () =>
   require('react-native-reanimated/mock'),
@@ -34,6 +37,48 @@ jest.mock('expo-web-browser', () => ({
   openAuthSessionAsync: jest.fn(async () => ({ type: 'cancel' })),
 }));
 
+jest.mock('expo-apple-authentication', () => ({
+  isAvailableAsync: jest.fn(async () => false),
+  signInAsync: jest.fn(async () => ({ identityToken: 'apple-token' })),
+  formatFullName: jest.fn(() => 'Test User'),
+  AppleAuthenticationScope: { FULL_NAME: 0, EMAIL: 1 },
+  AppleAuthenticationButtonType: { SIGN_IN: 0 },
+  AppleAuthenticationButtonStyle: { BLACK: 0 },
+  AppleAuthenticationButton: ({ onPress }: { onPress?: () => void }) => {
+    const React = require('react');
+    const { Pressable, Text } = require('react-native');
+    return React.createElement(
+      Pressable,
+      { onPress, testID: 'apple-sign-in' },
+      React.createElement(Text, null, 'Apple Sign In'),
+    );
+  },
+}));
+
+jest.mock('@react-native-google-signin/google-signin', () => ({
+  GoogleSignin: {
+    configure: jest.fn(),
+    hasPlayServices: jest.fn(async () => true),
+    signIn: jest.fn(async () => ({
+      type: 'success',
+      data: { idToken: 'google-token' },
+    })),
+  },
+  GoogleSigninButton: ({ onPress }: { onPress?: () => void }) => {
+    const React = require('react');
+    const { Pressable, Text } = require('react-native');
+    return React.createElement(
+      Pressable,
+      { onPress, testID: 'google-sign-in' },
+      React.createElement(Text, null, 'Google Sign In'),
+    );
+  },
+  statusCodes: {
+    SIGN_IN_CANCELLED: 'SIGN_IN_CANCELLED',
+    IN_PROGRESS: 'IN_PROGRESS',
+  },
+}));
+
 jest.mock('expo-image', () => {
   const React = require('react');
   const { View } = require('react-native');
@@ -50,12 +95,27 @@ jest.mock('expo-linear-gradient', () => {
 });
 
 jest.mock('expo-notifications', () => ({
-  requestPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
-  getPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
+  requestPermissionsAsync: jest.fn(async () => ({ status: 'granted', granted: true })),
+  getPermissionsAsync: jest.fn(async () => ({
+    status: 'granted',
+    granted: true,
+    canAskAgain: true,
+  })),
   setNotificationHandler: jest.fn(),
+  setNotificationChannelAsync: jest.fn(async () => {}),
+  getExpoPushTokenAsync: jest.fn(async () => ({ data: 'ExponentPushToken[test]' })),
+  setBadgeCountAsync: jest.fn(async () => true),
+  getLastNotificationResponseAsync: jest.fn(async () => null),
   scheduleNotificationAsync: jest.fn(async () => 'id'),
   addNotificationReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
   addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  AndroidImportance: { MAX: 5, HIGH: 4, DEFAULT: 3 },
+  AndroidNotificationVisibility: { PUBLIC: 1, PRIVATE: 0, SECRET: -1 },
+}));
+
+jest.mock('expo-device', () => ({
+  isDevice: true,
+  deviceName: 'jest',
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () =>
