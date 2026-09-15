@@ -30,6 +30,9 @@ const unitLabels = {
 
 export default function ProductCard({ product, cartQuantity = 0, onAddToCart, onRemoveFromCart, deliveryTime = '2 jours' }) {
   const isOutOfStock = product.stock_quantity <= 0;
+  // Produit à variantes : le choix est obligatoire, on renvoie vers la fiche
+  // produit au lieu d'ajouter directement au panier.
+  const requiresVariantChoice = (product.variants?.length ?? 0) > 0;
   const isPromotion = product.is_promotion && product.promotion_price;
   const displayPrice = isPromotion ? product.promotion_price : product.price;
   const discount = isPromotion ? Math.round((1 - product.promotion_price / product.price) * 100) : 0;
@@ -124,9 +127,12 @@ export default function ProductCard({ product, cartQuantity = 0, onAddToCart, on
             >
               Épuisé
             </Button>
-          ) : cartQuantity === 0 ? (
+          ) : cartQuantity === 0 || requiresVariantChoice ? (
             <Button
               onClick={(e) => {
+                // On laisse le Link parent ouvrir la fiche produit : la variante
+                // doit être choisie avant tout ajout au panier.
+                if (requiresVariantChoice) return;
                 e.preventDefault();
                 e.stopPropagation();
                 onAddToCart(product);
@@ -135,7 +141,7 @@ export default function ProductCard({ product, cartQuantity = 0, onAddToCart, on
               className="w-full hover:opacity-90 text-white rounded-xl h-12 transition-all duration-300 font-semibold"
             >
               <ShoppingBag className="w-4 h-4 mr-2" />
-              Ajouter
+              {requiresVariantChoice ? 'Choisir' : 'Ajouter'}
             </Button>
           ) : (
             <div className="flex items-center justify-between gap-2 bg-slate-100 rounded-xl p-1.5 w-full" onClick={(e) => e.preventDefault()}>
