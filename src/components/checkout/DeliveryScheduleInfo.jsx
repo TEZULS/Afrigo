@@ -22,23 +22,38 @@ function parseSlot(slot) {
   return null;
 }
 
+/**
+ * Accepte les formats réellement saisis dans AdminDeliveryZones : « 09h00 »,
+ * « 09:00 », « 9h », « 9 ». Retourne null si la valeur n'est pas une heure
+ * (ex. « Dans 2h ») — la plage est alors affichée telle quelle, sans calcul.
+ */
+function toMinutes(raw) {
+  const match = /^(\d{1,2})\s*[:hH.]?\s*(\d{1,2})?$/.exec(String(raw).trim());
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = match[2] != null ? Number(match[2]) : 0;
+  if (h > 23 || m > 59) return null;
+  return h * 60 + m;
+}
+
 function isCurrentlyInSlot(slot) {
   const parsed = parseSlot(slot);
   if (!parsed) return false;
+  const start = toMinutes(parsed.start);
+  const end = toMinutes(parsed.end);
+  if (start === null || end === null) return false;
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const [startH, startM] = parsed.start.split(':').map(Number);
-  const [endH, endM] = parsed.end.split(':').map(Number);
-  return currentMinutes >= (startH * 60 + (startM || 0)) && currentMinutes < (endH * 60 + (endM || 0));
+  return currentMinutes >= start && currentMinutes < end;
 }
 
 function slotNotPassed(slot) {
   const parsed = parseSlot(slot);
   if (!parsed) return true;
+  const end = toMinutes(parsed.end);
+  if (end === null) return true;
   const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const [endH, endM] = parsed.end.split(':').map(Number);
-  return currentMinutes < (endH * 60 + (endM || 0));
+  return now.getHours() * 60 + now.getMinutes() < end;
 }
 
 /**
@@ -58,7 +73,8 @@ function getNextDelivery(schedule, minDays = 0) {
     // Respect min_days_before_delivery
     if (offset < minDays) continue;
 
-    const slots = entry.time_slots || [];
+    // Les plages vides (« » saisi par erreur en admin) valent « journée entière ».
+    const slots = (entry.time_slots || []).map(s => String(s).trim()).filter(Boolean);
     const isToday = offset === 0;
 
     // For today, filter out passed slots
