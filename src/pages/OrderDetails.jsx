@@ -7,13 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { 
   Package, ArrowLeft, MapPin, Calendar, Phone, Mail, 
-  RotateCcw, MessageCircle, Navigation, Printer, Star, Clock, CreditCard
+  RotateCcw, MessageCircle, Navigation, Printer, Star, Clock, CreditCard, ShieldCheck
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { shouldShowDeliveryCode } from '@/lib/deliveryCode';
 import OrderStatusBadge from '@/components/orders/OrderStatusBadge';
 import OrderTracker from '@/components/orders/OrderTracker';
 import ReviewForm from '@/components/reviews/ReviewForm';
@@ -344,6 +345,32 @@ export default function OrderDetails() {
             </div>
           </div>
         </div>
+
+        {/* Code de confirmation à remettre au livreur */}
+        {shouldShowDeliveryCode(order.status, order.delivery_code) && (
+          <Card className="border-0 shadow-lg rounded-2xl bg-emerald-50 border border-emerald-200 no-print">
+            <CardContent className="p-4">
+              <p className="text-sm font-semibold text-emerald-900 mb-3 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4" />
+                Code de confirmation
+              </p>
+              <div className="flex gap-2 mb-3">
+                {String(order.delivery_code).split('').map((digit, i) => (
+                  <div
+                    key={i}
+                    className="w-12 h-14 rounded-lg bg-white border border-emerald-200 flex items-center justify-center text-2xl font-extrabold text-slate-900"
+                  >
+                    {digit}
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm text-emerald-800">
+                Communiquez ce code au livreur au moment de la remise. Il en a besoin pour valider la
+                livraison. Ne le donnez à personne d'autre.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Motif de non-livraison */}
         {(order.status === 'not_delivered' || order.status === 'failed_delivery') && order.delivery_failure_reason && (
