@@ -100,6 +100,7 @@ import ProductDetails from './pages/ProductDetails';
 import ProductRequests from './pages/ProductRequests';
 import Profile from './pages/Profile';
 import Promotions from './pages/Promotions';
+import Recipes from './pages/Recipes';
 import ReturnDetails from './pages/ReturnDetails';
 import Returns from './pages/Returns';
 import __Layout from './Layout.jsx';
@@ -159,6 +160,7 @@ export const PAGES = {
     "ProductRequests": ProductRequests,
     "Profile": Profile,
     "Promotions": Promotions,
+    "Recipes": Recipes,
     "ReturnDetails": ReturnDetails,
     "Returns": Returns,
 }

@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { 
               Home, User, ShoppingBag, ShoppingCart, Package, MessageCircle, 
-              Menu, X, Settings, LayoutDashboard, RotateCcw, QrCode, MapPin, Star, Phone, Banknote, History, Users, Handshake, Sparkles, Calendar, Truck, Eye, Bell, CreditCard, Tag, Mail, BarChart3, ShieldCheck
+              Menu, X, Settings, LayoutDashboard, RotateCcw, QrCode, MapPin, Star, Phone, Banknote, History, Users, Handshake, Sparkles, Calendar, Truck, Eye, Bell, CreditCard, Tag, Mail, BarChart3, ShieldCheck, ChefHat
             } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -341,6 +341,7 @@ export default function Layout({ children, currentPageName }) {
     { name: 'Mes retours', page: 'MyReturns', icon: RotateCcw },
     { name: 'Mes remboursements', page: 'MyRefunds', icon: Banknote },
     { name: 'Avis clients', page: 'AllReviews', icon: Star },
+    { name: 'Mes recettes', page: 'Recipes', icon: ChefHat },
     { name: 'Nous contacter', page: 'Messages', icon: Phone },
   ];
 
