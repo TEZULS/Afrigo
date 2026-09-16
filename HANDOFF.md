@@ -88,11 +88,11 @@ Valeurs extraites de `mob/app.json` et `mob/eas.json` au moment de la remise.
 | Nom affiché                          | `AfriGo`                                     |
 | Slug Expo                            | `afrigo`                                     |
 | URL scheme                           | `afrigo`                                     |
-| Version                              | `1.0.9`                                      |
+| Version                              | `1.0.18`                                     |
 | Bundle ID iOS                        | `app.afrigo.mobile`                          |
-| Build number iOS                     | `7` (auto-incrémenté sur `production`)       |
+| Build number iOS                     | `31` (auto-incrémenté sur `production`)      |
 | Package Android                      | `app.afrigo.mobile`                          |
-| versionCode Android                  | `9` (auto-incrémenté sur `production`)       |
+| versionCode Android                  | `16` (auto-incrémenté sur `production`)      |
 | Merchant ID (Apple Pay)              | `merchant.app.afrigo.mobile`                 |
 | Associated Domain                    | `applinks:afrigo.app`                        |
 | EAS Project ID                       | `501b64d7-fd58-449d-8a1e-046a2d43e7d1`       |
@@ -271,6 +271,77 @@ Le backend AfriGo est hébergé sur la plateforme **base44** et expose 21 foncti
 | `sendCustomInvitation`              | (Admin) Invite un nouvel utilisateur (admin ou client) par e-mail                      |
 | `archiveDailyCash`                  | Archive les `CashCollection` du jour                                                   |
 | `archiveMonthlyRevenue`             | Archive les statistiques de revenus quotidiens / hebdo / mensuels                      |
+| `pushAppNotification`               | (Admin) Pousse une `AppNotification` (existante ou créée à la volée) via Expo → APNs / FCM. Ne pas la nommer `sendPushNotification` : nom réservé par base44 (intégration intégrée). |
+| `dispatchPushNotifications`         | (Planifiée) Pousse toute `AppNotification` récente non encore envoyée                  |
+
+### 10.1 bis Notifications client (in-app + push)
+
+Les notifications destinées aux clients vivent dans **deux entités base44 qui
+existent déjà** :
+
+| Entité | Rôle |
+|--------|------|
+| `AppNotification` | La notification elle-même. Alimentée par l'admin (`type: 'manual'`), le suivi de livraison (`delivery_status`) et les relances panier (`cart_reminder`). Cible `target_audience: 'all'` ou une liste `target_emails`. |
+| `NotificationRead` | État par utilisateur et par notification : `is_read`, `read_date`, `deleted`. RLS déjà limitée à `user.email`. |
+
+**Côté mobile** (`mob/src/hooks/useNotificationsFeed.ts`), le fil 🔔 fusionne :
+
+1. `AppNotification.filter({ target_emails: <email> })` — le filtre se comporte
+   en « contient » sur le tableau ;
+2. `AppNotification.filter({ target_audience: 'all' })` — les diffusions ;
+3. l'avancement des commandes et les réponses du service client, pour
+   l'historique antérieur à `AppNotification`. Une commande déjà couverte par une
+   notification `delivery_status` n'est pas re-dérivée (pas de doublon).
+
+L'état « lu » est écrit dans `NotificationRead`, donc il suit le compte d'un
+appareil à l'autre ; un cache local (`kv`) le double pour un affichage instantané
+et hors ligne. Quitter l'onglet 🔔 marque tout comme lu (badge à zéro). La
+suppression par le client écrit `NotificationRead.deleted = true` (comme le
+web) : la ligne `AppNotification`, partagée, n'est jamais effacée.
+
+**Chaîne push** (app fermée / écran verrouillé) :
+
+1. `mob/src/services/pushNotifications.ts` demande la permission, récupère le
+   jeton Expo du device et l'écrit sur le profil (`expo_push_token`).
+2. `dispatchPushNotifications` (tâche planifiée) pousse toute `AppNotification`
+   récente non encore envoyée, quelle que soit son origine — aucun changement
+   n'est donc requis dans l'admin.
+3. `pushAppNotification` permet en plus un envoi explicite : pousser une
+   notification existante (`{ notificationId }`) ou créer + pousser en une fois.
+4. Expo relaie à APNs / FCM. Un appui ouvre l'écran correspondant à
+   `related_type` / `related_id` (commande, produit, panier) ou l'onglet 🔔.
+
+**Prérequis à faire une seule fois dans base44 / EAS :**
+
+| Étape | Où | Détail |
+|-------|----|--------|
+| Ajouter `expo_push_token` (string) au schéma `User` | base44 → Data → User | **Indispensable à la push.** Champs annexes facultatifs : `push_platform`, `push_token_updated_at`, `push_enabled`. |
+| Ajouter `push_sent` (boolean, défaut `false`) au schéma `AppNotification` | base44 → Data → AppNotification | Garantit qu'une notification n'est poussée qu'une fois. Sans ce champ, le dispatcher renverrait la même notification à chaque passage dans sa fenêtre. |
+| Déployer `dispatchPushNotifications` | base44 → Functions | `base44/functions/dispatchPushNotifications/entry.ts`, à planifier toutes les 1 à 5 minutes. |
+| Déployer `pushAppNotification` | base44 → Functions | `base44/functions/pushAppNotification/entry.ts` (envoi explicite, réservé aux admins). |
+| Credentials push | `eas credentials` | iOS : clé APNs (capability *Push Notifications* déjà présente sur l'App ID). Android : clé de service **FCM V1** + `google-services.json`. |
+
+> Les push ne fonctionnent que sur un **build EAS** (development / preview /
+> production) installé sur un **appareil réel** — ni Expo Go, ni simulateur.
+> Un client qui n'a jamais ouvert l'app, ou qui a refusé les notifications,
+> continue de voir la notification in-app dans l'onglet 🔔.
+
+**État constaté le 2026-09-11** (via l'API REST base44) : `dispatchPushNotifications`
+n'est **pas déployée** (« Backend function not found or not deployed ») et les
+lignes `AppNotification` récentes ne portent aucun champ `push_sent`. Tant que
+les quatre premières étapes du tableau ci-dessus ne sont pas faites dans
+base44, **aucune push n'est envoyée** : les notifications n'apparaissent que
+dans l'onglet 🔔, app ouverte. Le code mobile, lui, est prêt (permission,
+jeton, canal Android, badge, ouverture de l'écran lié).
+
+Vérification rapide après déploiement :
+
+```bash
+curl -X POST "https://base44.app/api/apps/<APP_ID>/functions/dispatchPushNotifications"   -H "api_key: <API_KEY>" -H "Content-Type: application/json"   -d '{"dryRun": true, "sinceMinutes": 60}'
+# → {"success":true,"dryRun":true,"notifications":N,"messages":M}
+#   M = nombre de téléphones ciblés ; 0 signifie qu'aucun profil User ne porte
+#   encore d'expo_push_token (champ absent du schéma, ou app jamais ouverte).
+```
 
 ### 10.2 Variables d'env. côté backend
 
@@ -390,7 +461,49 @@ npm run prebuild
 
 ---
 
-## 14. Liens utiles
+## 14. Rejet App Store — actions de resoumission
+
+Dernière review : **build 1.0.9 (16)**, iPad Pro 11-inch (M4), iPadOS 26.5.
+
+### 14.1 Guideline 5.1.2 — App Tracking Transparency
+
+**Pourquoi le rejet persiste :** App Store Connect déclare encore que l'app **track** les utilisateurs, notamment via **Physical Address**. L'adresse sert uniquement à la **livraison** — ce n'est pas du tracking Apple. ATT n'est requis que si vous déclarez du tracking.
+
+**Constat code :** aucun SDK pub, analytics Base44 désactivés, pas de `NSUserTrackingUsageDescription`, GPS retiré de `app.json` (pas de `expo-location`).
+
+**Actions App Store Connect (Account Holder / Admin) :**
+
+1. **App Privacy → Edit**
+2. **Does your app track users?** → **No**
+3. **Data Used to Track You** → section **vide**
+4. **Physical Address** → Linked to You, **App Functionality**, **Used for Tracking = No**
+5. Retirer **Precise Location** si non utilisé
+
+### 14.2 Guideline 2.1(a) — Bouton « Se connecter » inactif (iPad + iPhone)
+
+**Vraie cause (build 17 rejeté) :** l'écran Connexion est présenté en **`modal` natif** (`RootNavigator.tsx`, `presentation: 'modal'`). Or `react-native-toast-message` (`<Toast/>`) est monté à la **racine React**, donc **sous** la modale native iOS. Tous les retours d'erreur passaient par des **Toasts invisibles** derrière la modale → en cas d'échec de connexion (mauvais identifiants / pas de compte test), le bouton semblait **ne rien faire**.
+
+**Correctif code (build 18 / v1.0.10) :** `LoginScreen.tsx` — tous les retours utilisateur (échec connexion, reset, navigateur) passent par `Alert.alert` natif (toujours au-dessus de la modale). Validation déjà en **erreurs inline** sous les champs. Bouton dans le ScrollView + `keyboardShouldPersistTaps="always"`.
+
+**Review Notes :**
+
+> Login: enter email + password (min 6 characters), then tap « Se connecter ». Invalid input shows a red error under the field; failed login shows a native alert. Test account: [email + mot de passe] — or tap « Continuer en invité » to browse without an account.
+
+### 14.3 Apple Pay (si demandé)
+
+Checkout → Carte bancaire → Paiement → PaymentSheet Stripe. Merchant ID : `merchant.app.afrigo.mobile`.
+
+### 14.4 Build et soumission
+
+```bash
+cd mob
+npm run build:ios:prod
+eas submit -p ios --latest
+```
+
+---
+
+## 15. Liens utiles
 
 - Expo docs : https://docs.expo.dev/
 - EAS Build : https://docs.expo.dev/build/introduction/
