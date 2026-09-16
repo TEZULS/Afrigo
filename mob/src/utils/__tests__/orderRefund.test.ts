@@ -2,8 +2,11 @@ import {
   canRequestRefund,
   canRequestReturn,
   hasChargedAmount,
+  hasLockingReturn,
+  isOrderPaid,
   paidByWalletOnly,
   paymentFailed,
+  RETURN_WINDOW_HOURS,
 } from '../orderHelpers';
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60 * 1000).toISOString();
@@ -103,29 +106,64 @@ describe('canRequestReturn', () => {
   const naiveMinutesAgo = (m: number) =>
     new Date(Date.now() - m * 60 * 1000).toISOString().replace('Z', '000');
 
-  it('autorise dans les 2 h après livraison, y compris avec une date serveur sans fuseau', () => {
+  it('autorise dans l’heure qui suit la livraison, y compris avec une date serveur sans fuseau', () => {
+    expect(RETURN_WINDOW_HOURS).toBe(1);
     expect(
       canRequestReturn({ status: 'delivered', delivered_date: minutesAgo(30) }),
     ).toBe(true);
     // Avant, la date était lue comme locale : avec 2 h de décalage (Paris, été)
-    // la fenêtre de 2 h était déjà consommée et le bouton n'apparaissait jamais.
+    // la fenêtre était déjà consommée et le bouton n'apparaissait jamais.
     expect(
       canRequestReturn({ status: 'delivered', updated_date: naiveMinutesAgo(30) }),
     ).toBe(true);
   });
 
-  it('disparaît au-delà du délai (2 h par défaut, ou celui de l’admin)', () => {
+  it('disparaît une fois l’heure passée (délai surchargeable pour les tests)', () => {
+    expect(canRequestReturn({ status: 'delivered', delivered_date: minutesAgo(61) })).toBe(false);
     expect(canRequestReturn({ status: 'delivered', delivered_date: hoursAgo(3) })).toBe(false);
     expect(
       canRequestReturn({ status: 'delivered', delivered_date: hoursAgo(3) }, { windowHours: 4 }),
     ).toBe(true);
   });
 
-  it('uniquement pour une commande livrée, une seule fois, avec une date fiable', () => {
+  it('uniquement pour une commande livrée, avec une date fiable, tant qu’aucune demande n’est approuvée', () => {
     expect(canRequestReturn({ status: 'shipped', updated_date: minutesAgo(5) })).toBe(false);
     expect(
-      canRequestReturn({ status: 'delivered', delivered_date: minutesAgo(5) }, { alreadyRequested: true }),
+      canRequestReturn({ status: 'delivered', delivered_date: minutesAgo(5) }, { locked: true }),
     ).toBe(false);
     expect(canRequestReturn({ status: 'delivered' })).toBe(false);
+  });
+});
+
+describe('hasLockingReturn', () => {
+  const returns = [
+    { order_id: 'o1', status: 'rejected' },
+    { order_id: 'o1', status: 'pending' },
+    { order_id: 'o2', status: 'approved' },
+    { order_id: 'o3', status: 'completed' },
+  ];
+
+  it('laisse le client redemander tant que rien n’est approuvé (refusée ou en attente)', () => {
+    expect(hasLockingReturn(returns, 'o1')).toBe(false);
+    expect(hasLockingReturn(undefined, 'o1')).toBe(false);
+  });
+
+  it('ferme la commande dès qu’une demande est approuvée ou terminée', () => {
+    expect(hasLockingReturn(returns, 'o2')).toBe(true);
+    expect(hasLockingReturn(returns, 'o3')).toBe(true);
+  });
+});
+
+describe('isOrderPaid (bouton Facture)', () => {
+  it('carte : seulement si le paiement a abouti', () => {
+    expect(isOrderPaid({ payment_method: 'card', payment_status: 'completed', status: 'confirmed' })).toBe(true);
+    expect(isOrderPaid({ payment_method: 'card', payment_status: 'failed', status: 'cancelled' })).toBe(false);
+    expect(isOrderPaid({ payment_method: 'card', payment_status: 'pending', status: 'pending' })).toBe(false);
+  });
+
+  it('à la livraison : une fois livrée ; portefeuille intégral : tout de suite', () => {
+    expect(isOrderPaid({ payment_method: 'delivery', status: 'delivered' })).toBe(true);
+    expect(isOrderPaid({ payment_method: 'delivery', status: 'preparing' })).toBe(false);
+    expect(isOrderPaid({ payment_method: 'delivery', status: 'pending', wallet_amount_used: 12, amount_to_pay: 0 })).toBe(true);
   });
 });

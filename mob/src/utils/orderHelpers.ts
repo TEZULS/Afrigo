@@ -19,22 +19,49 @@ export const REFUND_WINDOW_HOURS = 24;
 
 export { hoursSince };
 
-/** Fenêtre par défaut pour demander un retour après livraison (surchargée par `AppSettings.return_time_limit_hours`). */
-export const DEFAULT_RETURN_WINDOW_HOURS = 2;
+/**
+ * Fenêtre pour demander un retour : **1 h** après la confirmation de livraison
+ * (règle métier AfriGo, 2026-09). Fixe côté mobile — `AppSettings.
+ * return_time_limit_hours` (3 h en production) n'est plus consulté.
+ */
+export const RETURN_WINDOW_HOURS = 1;
+
+export interface ReturnRequestRow {
+  order_id?: string;
+  status?: string;
+}
+
+/**
+ * Statuts d'une demande de retour qui ferment la commande à toute nouvelle
+ * demande. Le client peut en déposer plusieurs (une refusée, une en
+ * attente…) tant qu'aucune n'a été approuvée ou terminée.
+ */
+export const RETURN_LOCKING_STATUSES: readonly string[] = ['approved', 'completed'];
+
+/** Une demande approuvée ou terminée existe-t-elle déjà pour cette commande ? */
+export const hasLockingReturn = (
+  returns: ReturnRequestRow[] | undefined,
+  orderId: string,
+): boolean =>
+  (returns ?? []).some(
+    (r) => r.order_id === orderId && RETURN_LOCKING_STATUSES.includes(r.status ?? ''),
+  );
 
 /**
  * Bouton « Demander un retour » : commande livrée, moins de `windowHours`
- * après la livraison effective (`delivered_date`, sinon `updated_date`), et
- * pas de demande déjà déposée. Disparaît de lui-même une fois le délai passé.
+ * (1 h) après la livraison effective (`delivered_date`, sinon `updated_date`),
+ * et aucune demande déjà approuvée ou terminée (`locked`). Le bouton reste
+ * affiché tant qu'une demande n'est qu'en attente ou refusée, et disparaît de
+ * lui-même une fois le délai passé.
  */
 export const canRequestReturn = (
   o: RefundableOrder,
-  opts: { alreadyRequested?: boolean; windowHours?: number } = {},
+  opts: { locked?: boolean; windowHours?: number } = {},
 ): boolean => {
-  if (o.status !== 'delivered' || opts.alreadyRequested) return false;
+  if (o.status !== 'delivered' || opts.locked) return false;
   const ref = o.delivered_date ?? o.updated_date;
   if (!ref) return false;
-  const window = opts.windowHours ?? DEFAULT_RETURN_WINDOW_HOURS;
+  const window = opts.windowHours ?? RETURN_WINDOW_HOURS;
   return hoursSince(ref) <= window;
 };
 
@@ -69,4 +96,18 @@ export const canRequestRefund = (o: RefundableOrder, alreadyRequested = false): 
   if (!hasChargedAmount(o)) return false;
   const ref = o.updated_date ?? o.delivered_date;
   return hoursSince(ref) <= REFUND_WINDOW_HOURS;
+};
+
+/**
+ * La commande a été réglée : paiement carte abouti, portefeuille ayant tout
+ * couvert, ou paiement à la livraison d'une commande livrée. Une commande
+ * dont le paiement a échoué, est abandonné ou encore en attente n'a pas de
+ * facture à proposer.
+ */
+export const isOrderPaid = (o: RefundableOrder): boolean => {
+  if (paymentFailed(o)) return false;
+  if (o.payment_status === 'completed') return true;
+  if (paidByWalletOnly(o)) return true;
+  if (o.payment_method === 'delivery') return o.status === 'delivered';
+  return false;
 };
