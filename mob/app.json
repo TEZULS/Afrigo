@@ -3,7 +3,7 @@
     "name": "AfriGo",
     "slug": "afrigo",
     "scheme": "afrigo",
-    "version": "1.0.9",
+    "version": "1.0.18",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "automatic",
@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.afrigo.mobile",
-      "buildNumber": "7",
+      "buildNumber": "31",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -29,14 +29,15 @@
         "NSCameraUsageDescription": "AfriGo utilise l'appareil photo pour rechercher des produits par image et photographier des retours.",
         "NSPhotoLibraryUsageDescription": "AfriGo a besoin d'accéder à vos photos pour la recherche par image et les preuves de retour.",
         "NSPhotoLibraryAddUsageDescription": "AfriGo enregistre vos QR codes et bordereaux de commande.",
-        "NSLocationWhenInUseUsageDescription": "AfriGo utilise votre position pour suggérer la zone de livraison la plus proche.",
-        "NSUserTrackingUsageDescription": "Les statistiques anonymes améliorent les recommandations de produits.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
       }
     },
     "android": {
       "package": "app.afrigo.mobile",
-      "versionCode": 9,
+      "versionCode": 16,
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#FFFFFF"
@@ -44,13 +45,13 @@
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.CAMERA",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.VIBRATE",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.VIBRATE"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
       "intentFilters": [
         {
@@ -88,7 +89,7 @@
             "useFrameworks": "static"
           },
           "android": {
-            "compileSdkVersion": 35,
+            "compileSdkVersion": 36,
             "targetSdkVersion": 35,
             "minSdkVersion": 24
           }
@@ -102,12 +103,6 @@
         {
           "photosPermission": "AfriGo souhaite accéder à vos photos pour la recherche par image et les preuves de retour.",
           "cameraPermission": "AfriGo souhaite accéder à votre appareil photo pour la recherche par image."
-        }
-      ],
-      [
-        "expo-location",
-        {
-          "locationAlwaysAndWhenInUsePermission": "AfriGo utilise votre position pour calculer la zone de livraison."
         }
       ],
       [
@@ -126,7 +121,6 @@
       [
         "@stripe/stripe-react-native",
         {
-          "merchantIdentifier": "merchant.app.afrigo.mobile",
           "enableGooglePay": true
         }
       ],
@@ -138,7 +132,7 @@
         "projectId": "501b64d7-fd58-449d-8a1e-046a2d43e7d1"
       }
     },
-    "owner": "tezuls",
+    "owner": "afrigo",
     "runtimeVersion": {
       "policy": "appVersion"
     },
