@@ -28,6 +28,7 @@ import {
   remoteUpsertAfterAdd,
 } from '@/lib/cartRemote';
 import { formatPrice } from '@/utils/format';
+import { useCartVatRates } from '@/hooks/useCartVatRates';
 import { palette } from '@/theme/tokens';
 import type { RootStackParamList } from '@/navigation/types';
 
@@ -95,6 +96,8 @@ export const CartScreen: React.FC = () => {
     [selectedLines],
   );
   const articleCount = selectedLines.reduce((acc, l) => acc + l.quantity, 0);
+  const { totalsOf } = useCartVatRates(lines);
+  const vat = useMemo(() => totalsOf(selectedLines), [totalsOf, selectedLines]);
   const freeThreshold = Number(userZone?.free_delivery_threshold ?? 29);
   const remainingForFree = Math.max(0, freeThreshold - subTotal);
   const eligibleFree = subTotal >= freeThreshold;
@@ -198,6 +201,7 @@ export const CartScreen: React.FC = () => {
                     unitPrice: item.unitPrice,
                     category: item.category,
                     unit: item.unit,
+                    vatRate: item.vatRate,
                     variant: item.variant ?? undefined,
                     quantity: 1,
                   });
@@ -209,6 +213,7 @@ export const CartScreen: React.FC = () => {
                       unitPrice: item.unitPrice,
                       category: item.category,
                       unit: item.unit,
+                      vatRate: item.vatRate,
                       variant: item.variant,
                       quantity: 1,
                     });
@@ -400,8 +405,29 @@ export const CartScreen: React.FC = () => {
             </View>
           ) : null}
 
+          {/*
+            Détail HT / TVA des lignes cochées, seulement s'il y a de la TVA :
+            les prix du catalogue sont TTC, la TVA est retrouvée à partir du
+            taux du produit (`vat_rate`). Sans TVA, on n'affiche que le total.
+          */}
+          {vat.vat > 0 ? (
+          <View style={[styles.vatBox, { borderColor: colors.border }]} testID="cart-vat-breakdown">
+            <View style={styles.vatRow}>
+              <Text style={[styles.vatLabel, { color: colors.mutedForeground }]}>Montant HT</Text>
+              <Text style={[styles.vatValue, { color: colors.foreground }]}>{formatPrice(vat.ht)}</Text>
+            </View>
+            <View style={styles.vatRow}>
+              <Text style={[styles.vatLabel, { color: colors.mutedForeground }]}>
+                TVA{vat.byRate.length === 1 && vat.byRate[0]!.rate > 0 ? ` (${vat.byRate[0]!.rate} %)` : ''}
+              </Text>
+              <Text style={[styles.vatValue, { color: colors.foreground }]}>{formatPrice(vat.vat)}</Text>
+            </View>
+          </View>
+          ) : null}
           <View style={styles.totalRow}>
-            <Text style={[styles.totalLabel, { color: colors.foreground }]}>Total</Text>
+            <Text style={[styles.totalLabel, { color: colors.foreground }]}>
+              {vat.vat > 0 ? 'Total TTC' : 'Total'}
+            </Text>
             <Text style={[styles.totalValue, { color: palette.emerald[600] }]}>
               {formatPrice(subTotal)}
             </Text>
@@ -539,6 +565,10 @@ const styles = StyleSheet.create({
   },
   warnText: { fontSize: 12, fontWeight: '600', flex: 1 },
 
+  vatBox: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 8, gap: 2 },
+  vatRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  vatLabel: { fontSize: 12, fontWeight: '500' },
+  vatValue: { fontSize: 13, fontWeight: '600' },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   totalLabel: { fontSize: 15, fontWeight: '700' },
   totalValue: { fontSize: 22, fontWeight: '900' },
