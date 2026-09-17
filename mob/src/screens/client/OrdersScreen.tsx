@@ -47,8 +47,7 @@ import { useToast } from '@/hooks/useToast';
 import { formatDateTime, formatPrice } from '@/utils/format';
 import type { RootStackParamList } from '@/navigation/types';
 import { userErrorMessage } from '@/lib/userErrors';
-import { canRequestRefund, canRequestReturn, DEFAULT_RETURN_WINDOW_HOURS } from '@/utils/orderHelpers';
-import { useAppSettings } from '@/hooks/useAppSettings';
+import { canRequestRefund, canRequestReturn, hasLockingReturn } from '@/utils/orderHelpers';
 import { sellingPrice } from '@/utils/productPricing';
 
 interface OrderRow {
@@ -97,11 +96,6 @@ export const OrdersScreen: React.FC = () => {
   const { colors } = useTheme();
   const toast = useToast();
   const qc = useQueryClient();
-  const appSettings = useAppSettings();
-  const returnWindowHours =
-    Number(appSettings.data?.return_time_limit_hours) > 0
-      ? Number(appSettings.data?.return_time_limit_hours)
-      : DEFAULT_RETURN_WINDOW_HOURS;
   const [tab, setTab] = useState<Tab>('all');
   /** OrdersTab = onglet → tab bar du Tab.Navigator déjà visible.
    *  Orders (stack) = écran ouvert depuis le menu → besoin de la barre persistante. */
@@ -397,16 +391,13 @@ export const OrdersScreen: React.FC = () => {
   };
 
   /**
-   * « Demander un retour » : commande livrée, dans le délai fixé par l'admin
-   * (`return_time_limit_hours`, 2 h par défaut) après la livraison, une seule
-   * demande par commande. Le polling des commandes (30 s) fait disparaître le
-   * bouton de lui-même une fois le délai écoulé.
+   * « Demander un retour » : commande livrée, dans l'heure qui suit la
+   * livraison, et aucune demande déjà approuvée ou terminée sur la commande
+   * (le client peut en déposer plusieurs). Le polling des commandes (30 s)
+   * fait disparaître le bouton de lui-même une fois le délai écoulé.
    */
   const canReturn = (o: OrderRow) =>
-    canRequestReturn(o, {
-      alreadyRequested: (returnsQuery.data ?? []).some((r) => r.order_id === o.id),
-      windowHours: returnWindowHours,
-    });
+    canRequestReturn(o, { locked: hasLockingReturn(returnsQuery.data, o.id) });
 
   const cancelledHasNoCardRefund =
     refundTarget?.payment_method === 'card' && (refundTarget?.wallet_amount_used ?? 0) === 0;

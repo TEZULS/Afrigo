@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
-  Phone,
+  FileText,
   MessageSquare,
   RotateCcw,
   Calendar,
@@ -15,7 +15,6 @@ import {
   MapPin,
   ShieldCheck,
 } from 'lucide-react-native';
-import * as Linking from 'expo-linking';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/ui/Card';
@@ -26,16 +25,19 @@ import { OrderTracker } from '@/components/orders/OrderTracker';
 import { OrderStatusBadge } from '@/components/orders/OrderStatusBadge';
 import { Order, Return } from '@/api/entities';
 import { useAuth } from '@/lib/AuthContext';
-import { orderIssueMessage } from '@/lib/userErrors';
+import { orderIssueMessage, userErrorMessage } from '@/lib/userErrors';
 import { useTheme } from '@/theme/ThemeProvider';
-import { useAppSettings } from '@/hooks/useAppSettings';
+import { useToast } from '@/hooks/useToast';
 import { formatDateTime, formatPrice } from '@/utils/format';
 import { shouldShowDeliveryCode } from '@/utils/deliveryCode';
 import {
   canRequestReturn as canRequestReturnHelper,
-  DEFAULT_RETURN_WINDOW_HOURS,
+  hasLockingReturn,
+  isOrderPaid,
   paidByWalletOnly,
+  type ReturnRequestRow,
 } from '@/utils/orderHelpers';
+import { shareOrderInvoice } from '@/services/invoice';
 import type { RootStackParamList } from '@/navigation/types';
 
 interface OrderItem {
@@ -45,6 +47,7 @@ interface OrderItem {
   quantity: number;
   unit_price: number;
   total_price?: number;
+  vat_rate?: number | null;
   selected_variants?: Record<string, { type?: string; value?: string }> | null;
 }
 
@@ -85,22 +88,24 @@ export const OrderDetailsScreen: React.FC = () => {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
   const { user } = useAuth();
-  const settings = useAppSettings();
+  const toast = useToast();
+  const [invoiceBusy, setInvoiceBusy] = React.useState(false);
 
   const query = useQuery<OrderFull | null>({
     queryKey: ['order', route.params.id],
     queryFn: async () => ((await Order().get?.(route.params.id)) ?? null) as OrderFull | null,
   });
 
-  /** Une seule demande de retour par commande : le bouton disparaît une fois déposée. */
-  const returnsQuery = useQuery<{ id: string; order_id: string }[]>({
+  /**
+   * Demandes de retour du client : le bouton « Demander un retour » ne
+   * disparaît que si l'une d'elles a été approuvée ou terminée sur cette
+   * commande (ou une fois le délai passé) — plusieurs demandes sont possibles.
+   */
+  const returnsQuery = useQuery<ReturnRequestRow[]>({
     queryKey: ['returns-mine', user?.email],
     enabled: Boolean(user?.email),
     queryFn: async () =>
-      ((await Return().filter?.({ customer_email: user!.email })) ?? []) as {
-        id: string;
-        order_id: string;
-      }[],
+      ((await Return().filter?.({ customer_email: user!.email })) ?? []) as ReturnRequestRow[],
   });
 
   /**
@@ -140,9 +145,6 @@ export const OrderDetailsScreen: React.FC = () => {
     (order.delivery_lat != null && order.delivery_lng != null) ||
     !!(order.delivery?.lat && order.delivery?.lng);
 
-  const phone =
-    (user?.['phone'] as string | undefined) ?? order.delivery?.phone ?? settings.data?.support_phone;
-
   /**
    * `notes` = instructions saisies au checkout + « Tel: … » ajouté par l'app.
    * On n'affiche que la partie utile au client (le téléphone est déjà le sien).
@@ -161,22 +163,41 @@ export const OrderDetailsScreen: React.FC = () => {
       : 'Paiement par carte';
   const PaymentIcon = walletOnly || order.payment_method === 'delivery' ? Wallet : CreditCard;
 
-  const callPhone = (n?: string) => n && Linking.openURL(`tel:${n}`);
+  /**
+   * Facture PDF générée sur l'appareil puis proposée à l'enregistrement /
+   * au partage (Fichiers, mail…).
+   */
+  const downloadInvoice = async () => {
+    if (invoiceBusy) return;
+    setInvoiceBusy(true);
+    try {
+      await shareOrderInvoice(order, {
+        email: user?.email,
+        full_name: user?.full_name,
+        first_name: user?.['first_name'] as string | undefined,
+        last_name: user?.['last_name'] as string | undefined,
+        customer_id: user?.customer_id,
+        phone: user?.['phone'] as string | undefined,
+      });
+    } catch (e) {
+      toast.error(
+        'Facture indisponible',
+        userErrorMessage(e, 'La facture n’a pas pu être générée. Réessayez dans un instant.'),
+      );
+    } finally {
+      setInvoiceBusy(false);
+    }
+  };
 
   /**
-   * Bouton « Demander un retour » : commande livrée, dans le délai admin
-   * (`return_time_limit_hours`, 2 h par défaut) après `delivered_date`
-   * (sinon `updated_date`), et pas de demande déjà déposée. Les dates serveur
-   * sont lues en UTC (`parseServerDate`) : avant, le décalage horaire
-   * consommait le délai d'avance et le bouton n'apparaissait jamais.
+   * Bouton « Demander un retour » : commande livrée, dans l'heure qui suit
+   * `delivered_date` (sinon `updated_date`), et aucune demande déjà approuvée
+   * ou terminée. Les dates serveur sont lues en UTC (`parseServerDate`) :
+   * avant, le décalage horaire consommait le délai d'avance et le bouton
+   * n'apparaissait jamais.
    */
-  const returnWindowHours =
-    Number(settings.data?.return_time_limit_hours) > 0
-      ? Number(settings.data?.return_time_limit_hours)
-      : DEFAULT_RETURN_WINDOW_HOURS;
   const canRequestReturn = canRequestReturnHelper(order, {
-    alreadyRequested: (returnsQuery.data ?? []).some((r) => r.order_id === order.id),
-    windowHours: returnWindowHours,
+    locked: hasLockingReturn(returnsQuery.data, order.id),
   });
 
   return (
@@ -388,21 +409,29 @@ export const OrderDetailsScreen: React.FC = () => {
       </Card>
 
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+        {/* Pas de facture tant que le paiement n'a pas abouti (échoué, abandonné, en attente). */}
+        {isOrderPaid(order) ? (
         <Button
-          title="Service client"
+          title="Facture"
           variant="outline"
           fullWidth
-          leftIcon={<Phone size={16} color={colors.foreground} />}
-          onPress={() => callPhone(phone ?? settings.data?.support_phone)}
+          loading={invoiceBusy}
+          disabled={invoiceBusy}
+          leftIcon={<FileText size={16} color={colors.foreground} />}
+          onPress={() => void downloadInvoice()}
           style={{ flex: 1 }}
+          accessibilityHint="Télécharge la facture PDF de cette commande"
+          testID="order-invoice"
         />
+        ) : null}
         <Button
-          title="Messages"
+          title="Service client"
           variant="outline"
           fullWidth
           leftIcon={<MessageSquare size={16} color={colors.foreground} />}
           onPress={() => nav.navigate('Messages')}
           style={{ flex: 1 }}
+          testID="order-support"
         />
       </View>
 
