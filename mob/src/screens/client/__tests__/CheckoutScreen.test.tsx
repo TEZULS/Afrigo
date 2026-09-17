@@ -35,8 +35,10 @@ jest.mock('@/lib/AuthContext', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
+let mockAppSettings: Record<string, unknown> = { delivery_slots_enabled: false };
 jest.mock('@/hooks/useAppSettings', () => ({
-  useAppSettings: () => ({ data: { delivery_slots_enabled: false }, isLoading: false }),
+  ...jest.requireActual('@/hooks/useAppSettings'),
+  useAppSettings: () => ({ data: mockAppSettings, isLoading: false }),
 }));
 
 jest.mock('@/api/base44Client', () => ({
@@ -254,7 +256,9 @@ describe('CheckoutScreen — sélection du panier', () => {
     await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
 
     // Sous-total = 2 × 3 € (Bissap exclu), + 2,50 € de livraison.
+    // Sans TVA : pas de lignes HT / TVA, juste le sous-total.
     expect(screen.getByText('6,00 €')).toBeTruthy();
+    expect(screen.queryByText('Montant HT')).toBeNull();
 
     fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
@@ -302,5 +306,48 @@ describe('CheckoutScreen — paiement à la livraison avec sélection', () => {
 
     await waitFor(() => expect(mockConsumeOrderedLines).toHaveBeenCalledWith('salma@x.fr', ['p1-']));
     expect((lastCreatedOrder().items as { product_id: string }[]).map((i) => i.product_id)).toEqual(['p1']);
+  });
+});
+
+describe('CheckoutScreen — TVA', () => {
+  it('affiche HT / TVA / TTC et recopie le taux de chaque ligne dans la commande', async () => {
+    mockZones = [zone(true)];
+    // Crabe Madagascar : 10 € TTC à 10 % de TVA ; Bissap sans TVA renseignée.
+    useCart.setState({
+      lines: [
+        { productId: 'p1', name: 'Bissap', unitPrice: 6.99, quantity: 1 },
+        { productId: 'p3', name: 'Crabe Madagascar 1Kg', unitPrice: 10, quantity: 1, vatRate: 10 },
+      ],
+    });
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    expect(screen.getByText('Montant HT')).toBeTruthy();
+    expect(screen.getByText('16,08 €')).toBeTruthy(); // 6,99 + 9,09
+    expect(screen.getByText('TVA')).toBeTruthy(); // deux taux (0 % et 10 %) → pas de taux unique affiché
+    expect(screen.getByText('0,91 €')).toBeTruthy();
+    expect(screen.getByText('Sous-total TTC')).toBeTruthy();
+    expect(screen.getByText('16,99 €')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Paiement à la livraison'));
+    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
+    const items = lastCreatedOrder().items as { product_id: string; vat_rate: number }[];
+    expect(items.map((i) => [i.product_id, i.vat_rate])).toEqual([
+      ['p1', 0],
+      ['p3', 10],
+    ]);
+  });
+});
+
+describe('CheckoutScreen — paiement à la livraison bloqué depuis base44', () => {
+  it('ne propose que la carte quand `cash_on_delivery_enabled` est faux', async () => {
+    mockZones = [zone(true)];
+    mockAppSettings = { delivery_slots_enabled: false, cash_on_delivery_enabled: false };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    expect(screen.getByText('Carte bancaire')).toBeTruthy();
+    expect(screen.queryByText('Paiement à la livraison')).toBeNull();
+    mockAppSettings = { delivery_slots_enabled: false };
   });
 });

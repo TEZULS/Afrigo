@@ -41,7 +41,7 @@ import {
 } from '@/utils/checkoutMath';
 import { useToast } from '@/hooks/useToast';
 import { consumeOrderedLines } from '@/services/cartServerSync';
-import { useAppSettings } from '@/hooks/useAppSettings';
+import { useAppSettings, isCashOnDeliveryEnabled } from '@/hooks/useAppSettings';
 import type { AddressSuggestion } from '@/services/addressAutocomplete';
 import { DeliveryScheduleInfo } from '@/components/checkout/DeliveryScheduleInfo';
 import type { ScheduleDay } from '@/utils/deliverySchedule';
@@ -50,6 +50,7 @@ import { selectedVariantsPayload } from '@/utils/selectedVariants';
 import type { RootStackParamList } from '@/navigation/types';
 import { userErrorMessage } from '@/lib/userErrors';
 import { palette } from '@/theme/tokens';
+import { useCartVatRates } from '@/hooks/useCartVatRates';
 
 /** Message d'erreur interne : zone de livraison désactivée au moment de la commande. */
 const ZONE_UNAVAILABLE = 'zone_unavailable';
@@ -120,6 +121,15 @@ export const CheckoutScreen: React.FC = () => {
   const toast = useToast();
   const appSettings = useAppSettings();
   const deliverySlotsEnabled = Boolean(appSettings.data?.delivery_slots_enabled);
+  /**
+   * L'admin peut couper le paiement à la livraison depuis base44
+   * (`AppSettings.cash_on_delivery_enabled = false`) : l'option disparaît et
+   * seul le paiement par carte (ou portefeuille) reste proposé.
+   */
+  const cashOnDeliveryEnabled = isCashOnDeliveryEnabled(appSettings.data);
+  useEffect(() => {
+    if (!cashOnDeliveryEnabled) setPayment('card');
+  }, [cashOnDeliveryEnabled]);
 
   const [address, setAddress] = useState((user?.['address'] as string) ?? '');
   const [postalCode, setPostalCode] = useState((user?.['postal_code'] as string) ?? '');
@@ -260,6 +270,9 @@ export const CheckoutScreen: React.FC = () => {
   ]);
 
   const subTotal = lines.reduce((acc, l) => acc + l.unitPrice * l.quantity, 0);
+  /** TVA des lignes commandées (taux du produit, 0 % si jamais renseigné). */
+  const { totalsOf, vatRateOf } = useCartVatRates(lines);
+  const vat = totalsOf(lines);
   const freeTh = zone?.free_delivery_threshold;
   const FREE_THRESHOLD = freeTh != null ? Number(freeTh) : 0;
   const isFreeDelivery =
@@ -395,6 +408,9 @@ export const CheckoutScreen: React.FC = () => {
         quantity: l.quantity,
         unit_price: l.unitPrice,
         total_price: l.unitPrice * l.quantity,
+        // Taux au moment de la commande, comme le web : sert à la facture
+        // (HT / TVA / TTC) et reste vrai même si l'admin change la TVA après.
+        vat_rate: vatRateOf(l) ?? 0,
         selected_variants: lineToSelectedVariants(l),
       }));
 
@@ -875,7 +891,9 @@ export const CheckoutScreen: React.FC = () => {
                   Icon: Banknote,
                 },
               ] as const
-            ).map((p) => {
+            )
+              .filter((p) => p.id !== 'delivery' || cashOnDeliveryEnabled)
+              .map((p) => {
               const selected = payment === p.id;
               return (
                 <Pressable
@@ -913,9 +931,24 @@ export const CheckoutScreen: React.FC = () => {
       )}
 
       <Card padding={14} style={{ marginTop: 16 }}>
+        {/* HT / TVA uniquement quand la sélection porte de la TVA. */}
+        {vat.vat > 0 ? (
+          <>
+            <View style={styles.totalRow}>
+              <Text style={{ color: colors.mutedForeground }}>Montant HT</Text>
+              <Text style={{ color: colors.foreground }}>{formatPrice(vat.ht)}</Text>
+            </View>
+            <View style={styles.totalRow}>
+              <Text style={{ color: colors.mutedForeground }}>
+                TVA{vat.byRate.length === 1 && vat.byRate[0]!.rate > 0 ? ` (${vat.byRate[0]!.rate} %)` : ''}
+              </Text>
+              <Text style={{ color: colors.foreground }}>{formatPrice(vat.vat)}</Text>
+            </View>
+          </>
+        ) : null}
         <View style={styles.totalRow}>
-          <Text style={{ color: colors.mutedForeground }}>Sous-total</Text>
-          <Text style={{ color: colors.foreground }}>{formatPrice(subTotal)}</Text>
+          <Text style={{ color: colors.mutedForeground }}>{vat.vat > 0 ? 'Sous-total TTC' : 'Sous-total'}</Text>
+          <Text style={{ color: colors.foreground, fontWeight: '600' }}>{formatPrice(subTotal)}</Text>
         </View>
         <View style={styles.totalRow}>
           <Text style={{ color: colors.mutedForeground }}>Livraison</Text>
