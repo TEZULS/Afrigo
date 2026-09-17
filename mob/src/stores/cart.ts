@@ -29,6 +29,13 @@ export interface CartLine {
   variant?: CartVariant | null;
   category?: string;
   unit?: string;
+  /**
+   * Taux de TVA (%) du produit au moment de l'ajout — sert au détail
+   * HT / TVA / TTC du panier et est recopié dans `Order.items[].vat_rate`.
+   * Absent sur les lignes rechargées depuis le serveur (`CartItem` ne le
+   * stocke pas) : `useCartVatRates` le retrouve alors sur le produit.
+   */
+  vatRate?: number | null;
 }
 
 /**
