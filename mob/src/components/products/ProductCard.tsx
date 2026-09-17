@@ -41,6 +41,10 @@ export interface ProductDTO {
   is_active?: boolean;
   /** Niveaux de fidélité autorisés à acheter — vide/absent = tous. */
   allowed_tiers?: string[];
+  /** Date de création (UTC sans fuseau côté base44) — sert aux « Nouveaux produits ». */
+  created_date?: string;
+  /** Mises en avant admin (`nouveaute`, `meilleure_vente`…). */
+  featured_groups?: string[];
 }
 
 interface ProductCardProps {

@@ -51,13 +51,8 @@ describe('vatBreakdown', () => {
     expect(v.vat.toFixed(2)).toBe('1.40');
   });
 
-  it('TVA à 0 % : tout est HT', () => {
-    const v = vatBreakdown(4.25, 0)!;
-    expect(v.ht).toBe(4.25);
-    expect(v.vat).toBe(0);
-  });
-
-  it("renvoie null quand la TVA n'a jamais été renseignée", () => {
+  it('renvoie null sans TVA (taux absent ou 0 %) : rien à afficher', () => {
+    expect(vatBreakdown(4.25, 0)).toBeNull();
     expect(vatBreakdown(4.25, undefined)).toBeNull();
     expect(vatBreakdown(4.25, null)).toBeNull();
   });

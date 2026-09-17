@@ -308,6 +308,7 @@ export const ProductDetailsScreen: React.FC = () => {
     variant: variant ?? undefined,
     category: product!.category,
     unit: product!.unit,
+    vatRate: product!.vat_rate ?? null,
   });
 
   const headerCart = (
@@ -481,9 +482,13 @@ export const ProductDetailsScreen: React.FC = () => {
             {variantPromoPrice ? (
               <Badge label="Promo variante" variant="brand" />
             ) : null}
-            <Text style={[styles.priceUnit, { color: colors.mutedForeground }]}>
-              TTC{unitLabel(product.unit) ? ` / ${unitLabel(product.unit)}` : ''}
-            </Text>
+            {/* « TTC » n'a de sens qu'avec une TVA ; sinon juste l'unité. */}
+            {vat || unitLabel(product.unit) ? (
+              <Text style={[styles.priceUnit, { color: colors.mutedForeground }]}>
+                {vat ? 'TTC' : ''}
+                {unitLabel(product.unit) ? `${vat ? ' / ' : '/ '}${unitLabel(product.unit)}` : ''}
+              </Text>
+            ) : null}
           </View>
           {vat ? (
             <Text style={[styles.vatLine, { color: colors.mutedForeground }]} testID="product-vat-line">
@@ -661,6 +666,7 @@ export const ProductDetailsScreen: React.FC = () => {
                           unitPrice: sellingPrice(prod),
                           category: prod.category,
                           unit: prod.unit,
+                          vatRate: prod.vat_rate ?? null,
                         };
                         add(line);
                         if (syncEmail) void remoteUpsertAfterAdd(syncEmail, { ...line, quantity: 1 });

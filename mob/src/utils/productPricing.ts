@@ -57,14 +57,14 @@ export interface VatBreakdown {
 /**
  * Décomposition HT / TVA d'un prix TTC (mêmes formules que la fiche produit
  * web : `HT = TTC / (1 + taux/100)`, `TVA = TTC − HT`). Renvoie `null` quand
- * la TVA n'a jamais été renseignée sur le produit : on n'affiche pas une ligne
- * « TVA 0 % » inventée.
+ * le produit n'a pas de TVA (taux absent ou 0 %) : ni ligne « HT + TVA »,
+ * ni mention « TTC » — le prix affiché est simplement le prix.
  */
 export const vatBreakdown = (priceTtc: number, vatRate?: number | null): VatBreakdown | null => {
-  if (vatRate == null || !Number.isFinite(Number(vatRate))) return null;
-  const rate = Math.max(0, Number(vatRate));
+  const rate = Number(vatRate);
+  if (!Number.isFinite(rate) || rate <= 0) return null;
   const ttc = Number(priceTtc) || 0;
-  const ht = rate > 0 ? ttc / (1 + rate / 100) : ttc;
+  const ht = ttc / (1 + rate / 100);
   return { rate, ht, vat: ttc - ht };
 };
 
