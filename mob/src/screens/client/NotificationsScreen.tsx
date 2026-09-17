@@ -64,6 +64,10 @@ export const NotificationsScreen: React.FC = () => {
       nav.navigate('Promotions');
       return;
     }
+    if (item.kind === 'return' && item.returnId) {
+      nav.navigate('ReturnDetails', { id: item.returnId });
+      return;
+    }
     if (item.kind === 'cart') {
       nav.navigate('ClientTabs', { screen: 'CartTab' });
       return;

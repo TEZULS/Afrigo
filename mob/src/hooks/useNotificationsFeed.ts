@@ -19,16 +19,24 @@
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppNotification, Message, NotificationRead, Order } from '@/api/entities';
+import { AppNotification, Message, NotificationRead, Order, Return } from '@/api/entities';
 import { useAuth } from '@/lib/AuthContext';
 import { hydrateKvFromDisk, kv } from '@/services/storage';
+import { presentLocalNotification } from '@/services/localNotifications';
 import { serverDateMs } from '@/utils/serverDate';
 
 /**
  * Nature de la notification — pilote l'icône, la couleur, le libellé de
  * catégorie et l'écran ouvert depuis le détail.
  */
-export type NotificationKind = 'order' | 'message' | 'custom' | 'product' | 'promotion' | 'cart';
+export type NotificationKind =
+  | 'order'
+  | 'message'
+  | 'custom'
+  | 'product'
+  | 'promotion'
+  | 'cart'
+  | 'return';
 
 export interface NotificationItem {
   id: string;
@@ -42,6 +50,9 @@ export interface NotificationItem {
   orderStatus?: string;
   /** Produit lié (kind === 'product'). */
   productId?: string;
+  /** Demande de retour liée (kind === 'return') et son statut. */
+  returnId?: string;
+  returnStatus?: string;
   /** Illustration éventuelle (notifications admin). */
   imageUrl?: string;
   /**
@@ -65,6 +76,19 @@ interface MessageRow {
   content?: string;
   sender_type?: string;
   created_date?: string;
+}
+
+/** Cf. schéma base44 `Return` — seuls les champs utiles au fil. */
+interface ReturnRow {
+  id: string;
+  order_id?: string;
+  status?: string;
+  resolution_type?: string;
+  refund_amount?: number;
+  rejection_reason?: string;
+  admin_message?: string;
+  created_date?: string;
+  updated_date?: string;
 }
 
 /** Cf. schéma base44 `AppNotification`. */
@@ -123,6 +147,8 @@ const READ_IDS_KEY = 'notifications_read_ids';
 const READ_BEFORE_KEY = 'notifications_read_before_at';
 /** Cache local des identifiants supprimés par le client (doublon de `NotificationRead.deleted`). */
 const HIDDEN_IDS_KEY = 'notifications_hidden_ids';
+/** Notifications de retour déjà vues par l'appareil (pour n'alerter que sur du nouveau). */
+const RETURN_SEEN_KEY = 'notifications_return_seen_ids';
 
 /** Au-delà, on purge les identifiants les plus anciens (état borné sur le disque). */
 const MAX_READ_IDS = 500;
@@ -352,7 +378,37 @@ export const resetNotificationsReadCache = () => {
   persistHiddenIds([]);
   readBeforeMs = 0;
   kv.remove(READ_BEFORE_KEY);
+  kv.remove(RETURN_SEEN_KEY);
   emit();
+};
+
+/**
+ * Alerte l'appareil (notification locale) quand une demande de retour change
+ * de statut : l'admin ne pousse rien côté serveur pour les retours, c'est le
+ * rafraîchissement du fil qui repère le changement. Au premier passage sur cet
+ * appareil on mémorise l'existant sans alerter ; ensuite, chaque nouvel
+ * identifiant `return:<id>:<statut>` non lu déclenche une notification.
+ */
+export const alertNewReturnNotifications = async (items: NotificationItem[]) => {
+  await hydrateReadState();
+  const current = items.filter((i) => i.kind === 'return').map((i) => i.id);
+  const stored = kv.get<string[]>(RETURN_SEEN_KEY);
+  if (!Array.isArray(stored)) {
+    kv.set(RETURN_SEEN_KEY, current);
+    return [];
+  }
+  const seen = new Set(stored);
+  const fresh = items.filter((i) => i.kind === 'return' && !seen.has(i.id) && isUnread(i));
+  for (const item of fresh) {
+    void presentLocalNotification({
+      title: item.title,
+      body: item.body,
+      data: { relatedType: 'return', relatedId: item.returnId },
+    });
+  }
+  const merged = [...new Set([...stored, ...current])];
+  kv.set(RETURN_SEEN_KEY, merged.length > MAX_READ_IDS ? merged.slice(-MAX_READ_IDS) : merged);
+  return fresh;
 };
 
 /** Supprime une notification du fil de ce client (masquée, jamais effacée du serveur). */
@@ -426,11 +482,42 @@ interface FeedPayload {
   serverReadIds: string[];
 }
 
+/** Texte de la notification de retour selon le statut (mêmes mots que « Mes retours »). */
+const returnStatusText = (r: ReturnRow): string => {
+  switch (r.status) {
+    case 'approved':
+      return [
+        'Votre demande de retour a été acceptée : le livreur passera récupérer le produit.',
+        r.admin_message?.trim(),
+      ]
+        .filter(Boolean)
+        .join(' ');
+    case 'completed': {
+      const refund = Number(r.refund_amount) || 0;
+      const credit =
+        r.resolution_type === 'refund' && refund > 0
+          ? ` ${refund.toFixed(2).replace('.', ',')} € ont été crédités sur votre portefeuille.`
+          : '';
+      return [`Votre retour est terminé.${credit}`, r.admin_message?.trim()].filter(Boolean).join(' ');
+    }
+    case 'rejected':
+      return [
+        'Votre demande de retour a été refusée.',
+        r.rejection_reason?.trim() ? `Motif : ${r.rejection_reason.trim()}` : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+    default:
+      return 'Votre demande de retour a bien été enregistrée. Nous l’examinons rapidement.';
+  }
+};
+
 const buildFeed = (
   notifications: AppNotificationRow[],
   orders: OrderRow[],
   messages: MessageRow[],
   reads: NotificationReadRow[],
+  returns: ReturnRow[] = [],
 ): FeedPayload => {
   const hidden = new Set(
     reads.filter((r) => r.deleted && r.notification_id).map((r) => r.notification_id as string),
@@ -478,6 +565,24 @@ const buildFeed = (
       unread: false,
     }));
 
+  /**
+   * Suivi des demandes de retour : une entrée par changement de statut
+   * (l'identifiant inclut le statut, donc « approuvée » puis « terminée »
+   * donnent deux notifications, chacune non lue à son tour).
+   */
+  const returnItems: NotificationItem[] = returns.map((r) => ({
+    id: `return:${r.id}:${r.status ?? 'pending'}`,
+    kind: 'return',
+    title: `Retour · commande ${r.order_id ? orderLabel(r.order_id) : ''}`.trim(),
+    body: returnStatusText(r),
+    date: (r.status && r.status !== 'pending' ? r.updated_date : r.created_date) ?? r.created_date ?? null,
+    orderId: r.order_id,
+    returnId: r.id,
+    returnStatus: r.status,
+    derived: true,
+    unread: false,
+  }));
+
   const messageItems: NotificationItem[] = messages
     .filter((m) => m.sender_type === 'admin')
     .map((m) => ({
@@ -490,7 +595,7 @@ const buildFeed = (
       unread: false,
     }));
 
-  const items = [...remoteItems, ...orderItems, ...messageItems]
+  const items = [...remoteItems, ...orderItems, ...returnItems, ...messageItems]
     .filter((i) => !hidden.has(i.id))
     .sort((a, b) => toMs(b.date) - toMs(a.date));
 
@@ -518,15 +623,18 @@ export const useNotificationsFeed = () => {
     enabled: Boolean(email),
     refetchInterval: 60_000,
     queryFn: async () => {
-      const [notifications, orders, messages, reads] = await Promise.all([
+      const [notifications, orders, messages, reads, returns] = await Promise.all([
         fetchAppNotifications(email as string),
         safe(() => (Order() as unknown as EntityApi<OrderRow>).filter?.({ customer_email: email })),
         safe(() =>
           (Message() as unknown as EntityApi<MessageRow>).filter?.({ customer_email: email }),
         ),
         fetchReadState(email as string),
+        safe(() =>
+          (Return() as unknown as EntityApi<ReturnRow>).filter?.({ customer_email: email }),
+        ),
       ]);
-      return buildFeed(notifications, orders, messages, reads);
+      return buildFeed(notifications, orders, messages, reads, returns);
     },
   });
 
@@ -535,6 +643,11 @@ export const useNotificationsFeed = () => {
   // L'état « lu » du serveur alimente le cache local (multi-appareils).
   useEffect(() => {
     if (data?.serverReadIds?.length && mergeReadIds(data.serverReadIds)) emit();
+  }, [data]);
+
+  // Changement de statut d'un retour → notification sur l'appareil.
+  useEffect(() => {
+    if (data?.items?.length) void alertNewReturnNotifications(data.items);
   }, [data]);
 
   const items = useMemo(

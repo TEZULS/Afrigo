@@ -4,6 +4,7 @@ import {
   Package,
   PackageCheck,
   PackageX,
+  RotateCcw,
   ShoppingCart,
   Sparkles,
   Tag,
@@ -44,7 +45,9 @@ const ORDER_MOVING = new Set(['shipped', 'out_for_delivery']);
  * Icône, couleurs et catégorie d'une notification selon sa nature — et,
  * pour une commande, selon son statut (livrée, annulée, en route…).
  */
-export const notificationVisual = (item: Pick<NotificationItem, 'kind' | 'orderStatus'>): NotificationVisual => {
+export const notificationVisual = (
+  item: Pick<NotificationItem, 'kind' | 'orderStatus' | 'returnStatus'>,
+): NotificationVisual => {
   switch (item.kind) {
     case 'order': {
       const status = item.orderStatus ?? '';
@@ -67,6 +70,16 @@ export const notificationVisual = (item: Pick<NotificationItem, 'kind' | 'orderS
       return { Icon: Tag, color: palette.rose[600], bg: palette.rose[50], label: 'Promotion' };
     case 'cart':
       return { Icon: ShoppingCart, color: palette.emerald[600], bg: palette.emerald[50], label: 'Votre panier' };
+    case 'return': {
+      const status = item.returnStatus ?? 'pending';
+      if (status === 'rejected') {
+        return { Icon: RotateCcw, color: palette.rose[600], bg: palette.rose[50], label: 'Retour refusé' };
+      }
+      if (status === 'approved' || status === 'completed') {
+        return { Icon: RotateCcw, color: palette.emerald[600], bg: palette.emerald[50], label: status === 'completed' ? 'Retour terminé' : 'Retour accepté' };
+      }
+      return { Icon: RotateCcw, color: palette.orange[600], bg: palette.orange[50], label: 'Demande de retour' };
+    }
     default:
       return { Icon: Bell, color: palette.orange[600], bg: palette.orange[50], label: 'AfriGo' };
   }

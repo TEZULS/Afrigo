@@ -63,8 +63,12 @@ const mockNotificationReadCreate = jest.fn(async (data: Record<string, unknown>)
 }));
 const mockNotificationReadUpdate = jest.fn(async () => ({}));
 
+/** Demandes de retour du client — vides par défaut, renseignées par certains tests. */
+let mockReturns: Record<string, unknown>[] = [];
+
 jest.mock('@/api/entities', () => ({
   Order: () => ({ filter: jest.fn(async () => mockOrders) }),
+  Return: () => ({ filter: jest.fn(async () => mockReturns) }),
   Message: () => ({ filter: jest.fn(async () => mockMessages) }),
   AppNotification: () => ({ filter: mockAppNotificationFilter }),
   NotificationRead: () => ({
@@ -92,6 +96,7 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 
 beforeEach(() => {
   mockReads = [];
+  mockReturns = [];
   resetNotificationsReadCache();
   jest.clearAllMocks();
 });
@@ -206,5 +211,53 @@ describe('useNotificationsFeed', () => {
     act(() => result.current.markAllRead());
     await waitFor(() => expect(result.current.unreadCount).toBe(0));
     expect(result.current.items.every((i) => !i.unread)).toBe(true);
+  });
+});
+
+describe('useNotificationsFeed — demandes de retour', () => {
+  const rejected = {
+    id: 'ret_1',
+    order_id: 'ord_00000001',
+    status: 'rejected',
+    rejection_reason: 'Produit ouvert',
+    created_date: '2026-09-17T09:00:00.000000',
+    updated_date: '2026-09-17T10:30:00.000000',
+  };
+
+  it('signale chaque changement de statut d’un retour avec le motif de l’admin', async () => {
+    mockReturns = [rejected];
+    const { result } = renderHook(() => useNotificationsFeed(), { wrapper });
+    await waitFor(() =>
+      expect(result.current.items.some((i) => i.id === 'return:ret_1:rejected')).toBe(true),
+    );
+    const item = result.current.items.find((i) => i.id === 'return:ret_1:rejected')!;
+    expect(item.kind).toBe('return');
+    expect(item.returnId).toBe('ret_1');
+    expect(item.title).toBe('Retour · commande #00000001');
+    expect(item.body).toBe('Votre demande de retour a été refusée. Motif : Produit ouvert');
+    expect(item.unread).toBe(true);
+  });
+
+  it('alerte l’appareil pour un nouveau statut, pas pour l’existant au premier chargement', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Notifications = require('expo-notifications');
+    mockReturns = [{ ...rejected, status: 'approved', admin_message: 'Le livreur passe demain.' }];
+    const first = renderHook(() => useNotificationsFeed(), { wrapper });
+    await waitFor(() =>
+      expect(first.result.current.items.some((i) => i.id === 'return:ret_1:approved')).toBe(true),
+    );
+    await waitFor(() => expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled());
+    first.unmount();
+
+    // L'admin termine le retour : nouvel identifiant → notification locale.
+    mockReturns = [{ ...rejected, status: 'completed', resolution_type: 'refund', refund_amount: 15.39 }];
+    const second = renderHook(() => useNotificationsFeed(), { wrapper });
+    await waitFor(() =>
+      expect(second.result.current.items.some((i) => i.id === 'return:ret_1:completed')).toBe(true),
+    );
+    await waitFor(() => expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1));
+    const call = Notifications.scheduleNotificationAsync.mock.calls[0][0];
+    expect(call.content.body).toBe('Votre retour est terminé. 15,39 € ont été crédités sur votre portefeuille.');
+    expect(call.content.data).toEqual({ relatedType: 'return', relatedId: 'ret_1' });
   });
 });

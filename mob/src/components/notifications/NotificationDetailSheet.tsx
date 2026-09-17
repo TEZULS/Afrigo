@@ -50,6 +50,8 @@ const targetLabelFor = (item: NotificationItem | null): string | null => {
       return 'Voir les promotions';
     case 'cart':
       return 'Voir mon panier';
+    case 'return':
+      return item.returnId ? 'Voir ma demande de retour' : null;
     default:
       return null;
   }

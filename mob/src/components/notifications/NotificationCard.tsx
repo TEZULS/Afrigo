@@ -26,6 +26,8 @@ const ctaLabel = (item: NotificationItem): string => {
       return 'Voir les promotions';
     case 'cart':
       return 'Voir mon panier';
+    case 'return':
+      return 'Voir ma demande de retour';
     default:
       return 'Voir le détail';
   }
