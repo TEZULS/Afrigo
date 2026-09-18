@@ -129,6 +129,7 @@ export const LoginScreen: React.FC = () => {
     onContainerLayout: onFieldsLayout,
     onFieldLayout,
     onFieldFocus: focusField,
+    onContentSizeChange: onFormContentSizeChange,
   } = useKeyboardAwareFields(scrollRef);
 
   const fg = colors.foreground;
@@ -422,6 +423,7 @@ export const LoginScreen: React.FC = () => {
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator
           bounces
+          onContentSizeChange={onFormContentSizeChange}
         >
           <View style={[styles.toolbar, { borderBottomColor: border }]}>
             <Pressable

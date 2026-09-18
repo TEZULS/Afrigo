@@ -16,11 +16,11 @@ const emitKeyboard = (event: string, payload: unknown) => {
 /** Formulaire minimal : conteneur à y=200, champs à y=0 et y=420. */
 const Form: React.FC = () => {
   const scrollRef = useRef<ScrollView>(null);
-  const { onContainerLayout, onFieldLayout, onFieldFocus, keyboardHeight } =
+  const { onContainerLayout, onFieldLayout, onFieldFocus, onContentSizeChange, keyboardHeight } =
     useKeyboardAwareFields(scrollRef);
 
   return (
-    <ScrollView ref={scrollRef} testID="scroll">
+    <ScrollView ref={scrollRef} testID="scroll" onContentSizeChange={onContentSizeChange}>
       <View testID={`kb-${keyboardHeight}`} />
       <View onLayout={onContainerLayout} testID="fields">
         <View onLayout={onFieldLayout('email')} testID="email-row">
@@ -159,6 +159,67 @@ describe('useKeyboardAwareFields', () => {
     showKeyboard();
 
     expect(scrollTo).toHaveBeenLastCalledWith({ y: 0, animated: true });
+  });
+
+  it('publie la hauteur dès `keyboardWillShow` (iOS) pour poser la réserve pendant l’animation', () => {
+    mountForm();
+    fireEvent(screen.getByTestId('address'), 'focus');
+
+    act(() => {
+      emitKeyboard('keyboardWillShow', { endCoordinates: { height: 336 } });
+    });
+    // La réserve est connue avant que le clavier soit déployé…
+    expect(screen.getByTestId('kb-336')).toBeTruthy();
+    // …et aucun défilement n'a encore été tenté (il serait borné).
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('rejoue le défilement un peu après `keyboardDidShow`, une fois le layout natif à jour', () => {
+    mountForm();
+    fireEvent(screen.getByTestId('address'), 'focus');
+
+    act(() => {
+      emitKeyboard('keyboardDidShow', { endCoordinates: { height: 336 } });
+      jest.advanceTimersByTime(0);
+    });
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      jest.advanceTimersByTime(200);
+    });
+    expect(scrollTo).toHaveBeenCalledTimes(2);
+    expect(scrollTo).toHaveBeenLastCalledWith({
+      y: 200 + 420 - FIELD_SCROLL_MARGIN,
+      animated: true,
+    });
+  });
+
+  it('rejoue le défilement quand le contenu grandit sous un clavier ouvert', () => {
+    mountForm();
+    fireEvent(screen.getByTestId('address'), 'focus');
+    showKeyboard();
+    scrollTo.mockClear();
+
+    // Réserve clavier appliquée / suggestions d'adresse affichées : le contenu grandit.
+    fireEvent(screen.getByTestId('scroll'), 'contentSizeChange', 300, 1200);
+    expect(scrollTo).toHaveBeenCalledWith({ y: 200 + 420 - FIELD_SCROLL_MARGIN, animated: true });
+
+    // Un contenu qui rétrécit ne déclenche rien.
+    scrollTo.mockClear();
+    fireEvent(screen.getByTestId('scroll'), 'contentSizeChange', 300, 900);
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('ignore la croissance du contenu quand le clavier est fermé', () => {
+    mountForm();
+    fireEvent(screen.getByTestId('address'), 'focus');
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+    scrollTo.mockClear();
+
+    fireEvent(screen.getByTestId('scroll'), 'contentSizeChange', 300, 1200);
+    expect(scrollTo).not.toHaveBeenCalled();
   });
 
   it('oublie le champ actif à la fermeture du clavier', () => {
