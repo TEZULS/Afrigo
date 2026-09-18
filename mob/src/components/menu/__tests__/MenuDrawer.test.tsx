@@ -22,6 +22,12 @@ jest.mock('@/lib/AuthContext', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
+/** Promotions actives — vides par défaut ; « Mes offres » n'apparaît qu'avec au moins une. */
+let mockPromotions: Record<string, unknown>[] = [];
+jest.mock('@/api/entities', () => ({
+  Product: () => ({ filter: jest.fn(async () => mockPromotions) }),
+}));
+
 const wrap = (ui: React.ReactElement) =>
   <NavigationContainer>{ui}</NavigationContainer>;
 
@@ -102,5 +108,28 @@ describe('MenuDrawer', () => {
       (i) => i.props.accessibilityState?.selected === true,
     );
     expect(ordersItem).toBeTruthy();
+  });
+});
+
+describe('MenuDrawer — Mes offres', () => {
+  afterEach(() => {
+    mockPromotions = [];
+  });
+
+  it('ajoute « Mes offres » après « Mes commandes » quand une promotion est active', async () => {
+    mockPromotions = [{ id: 'p1', is_promotion: true, promotion_price: 3.99, is_active: true }];
+    renderWithProviders(wrap(<MenuDrawer />));
+    useMenuDrawer.getState().open();
+    await waitFor(() => expect(screen.getByText('Mes offres')).toBeTruthy());
+    const labels = renderedTexts().filter((t) => t !== 'AfriGo');
+    expect(labels.indexOf('Mes offres')).toBe(labels.indexOf('Mes commandes') + 1);
+  });
+
+  it('ne propose pas « Mes offres » sans promotion (ou promotion désactivée)', async () => {
+    mockPromotions = [{ id: 'p1', is_promotion: true, promotion_price: 3.99, is_active: false }];
+    renderWithProviders(wrap(<MenuDrawer />));
+    useMenuDrawer.getState().open();
+    await waitFor(() => expect(screen.getByText('Accueil')).toBeTruthy());
+    expect(screen.queryByText('Mes offres')).toBeNull();
   });
 });

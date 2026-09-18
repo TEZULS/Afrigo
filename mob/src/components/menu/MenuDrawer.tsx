@@ -19,6 +19,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { useQuery } from '@tanstack/react-query';
+import { Product } from '@/api/entities';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   Home,
@@ -28,6 +30,7 @@ import {
   ChefHat,
   Phone,
   Settings as SettingsIcon,
+  Tag,
   X,
 } from 'lucide-react-native';
 import { useMenuDrawer, type MenuActiveRoute } from '@/stores/menuDrawer';
@@ -56,6 +59,23 @@ export const MenuDrawer: React.FC = () => {
   const { width: screenWidth } = useWindowDimensions();
 
   const panelWidth = Math.min(MAX_PANEL_WIDTH, Math.round(screenWidth * PANEL_RATIO));
+
+  /**
+   * « Mes offres » (page Promotions, comme sur le site) n'est proposé que
+   * s'il existe au moins une promotion active au catalogue.
+   */
+  const promotionsQuery = useQuery<{ is_active?: boolean; promotion_price?: number | null }[]>({
+    queryKey: ['promotions'],
+    staleTime: 60_000,
+    queryFn: async () =>
+      ((await Product().filter?.({ is_promotion: true })) ?? []) as {
+        is_active?: boolean;
+        promotion_price?: number | null;
+      }[],
+  });
+  const hasOffers = (promotionsQuery.data ?? []).some(
+    (p) => p.is_active !== false && p.promotion_price != null,
+  );
 
   const progress = useSharedValue(0);
   const panelWidthSV = useSharedValue(panelWidth);
@@ -117,7 +137,8 @@ export const MenuDrawer: React.FC = () => {
 
   /**
    * Ordre demandé : Accueil / Mon profil / Mes recettes / Mes commandes /
-   * Avis clients / Nous contacter / Paramètres.
+   * [Mes offres, s'il y a des promotions] / Avis clients / Nous contacter /
+   * Paramètres.
    *
    * Paiement, Mes retours et Mes remboursements ont quitté ce menu : ils sont
    * regroupés dans « Paramètres » (`SettingsScreen`).
@@ -155,6 +176,15 @@ export const MenuDrawer: React.FC = () => {
           true,
         ),
     },
+    ...(hasOffers
+      ? [
+          {
+            label: 'Mes offres',
+            Icon: Tag,
+            onPress: () => navigateThen(() => nav.navigate('Promotions')),
+          } satisfies DrawerItem,
+        ]
+      : []),
     {
       label: 'Avis clients',
       Icon: Star,
