@@ -1,5 +1,4 @@
 const { getDefaultConfig } = require('expo/metro-config');
-const { withNativeWind } = require('nativewind/metro');
 const path = require('path');
 
 const projectRoot = __dirname;
@@ -13,7 +12,8 @@ config.resolver.alias = {
   '@': path.resolve(projectRoot, 'src'),
 };
 
-const metroConfig = withNativeWind(config, { input: './global.css' });
+// NativeWind retiré (voir babel.config.js) : Metro sert la config Expo standard.
+const metroConfig = config;
 
 const upstreamResolveRequest = metroConfig.resolver.resolveRequest;
 

@@ -1,4 +1,3 @@
-import './global.css';
 import React, { useEffect } from 'react';
 import { InteractionManager } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -18,6 +17,7 @@ import { env } from '@/config/env';
 import { configureGoogleSignIn } from '@/services/socialAuth';
 import { configureNotificationHandler } from '@/services/pushNotifications';
 import { ToastHost } from '@/components/ui/ToastHost';
+import { LegalConsentGate } from '@/components/legal/LegalConsentGate';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
   /* noop */
@@ -66,6 +66,8 @@ export default function App() {
     <AuthProvider>
       <PushNotificationsBridge />
       <RootNavigator />
+      {/* Règlement intérieur + politique de confidentialité à accepter (1er lancement, nouvelle version). */}
+      <LegalConsentGate />
       {/*
         Hôte de notifications maison : il est démonté dès l'expiration du
         minuteur (cf. `useToast`), là où un bandeau dont la visibilité dépend

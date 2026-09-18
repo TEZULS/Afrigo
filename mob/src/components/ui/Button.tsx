@@ -63,11 +63,12 @@ export const Button: React.FC<ButtonProps> = ({
   const s = sizing[size];
 
   /**
-   * On évite le `style={({pressed}) => ...}` : le `cssInterop` de NativeWind
-   * (JSX compilé avec `jsxImportSource: 'nativewind'`) remplace un style
-   * fonction par `{}`, ce qui rendait certains boutons (primary, brand,
-   * destructive) invisibles bien que cliquables — cf. `@/components/ui/Pressable`.
-   * On utilise un style statique + `android_ripple` pour le feedback.
+   * On évite le `style={({pressed}) => ...}` : à l'époque où le JSX passait
+   * par le `cssInterop` de NativeWind, un style fonction devenait `{}` et
+   * certains boutons (primary, brand, destructive) étaient invisibles bien que
+   * cliquables — cf. `@/components/ui/Pressable`. NativeWind a été retiré
+   * (`babel.config.js`), mais un style statique + `android_ripple` reste le
+   * choix le plus simple et le plus prévisible pour le feedback.
    */
   return (
     <Pressable

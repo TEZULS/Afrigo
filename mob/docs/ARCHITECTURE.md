@@ -12,7 +12,7 @@
 | Framework             | **Expo SDK 52** (managed → bare possible via `expo prebuild`)   | EAS Build officiel iOS + Android, OTA updates, dev client. |
 | Langage               | **TypeScript strict**                                           | Lisibilité, refactor sûr, compatibilité shadcn-like.       |
 | Navigation            | **React Navigation v7** (native-stack + bottom-tabs + drawer)   | Standard mobile, deep linking + stack natif iOS / Android. |
-| Styling               | **NativeWind v4 (Tailwind RN)** + tokens centralisés (`theme/`) | Réutilise les classes Tailwind du projet web → migration rapide. |
+| Styling               | `StyleSheet` + tokens centralisés (`theme/`) — NativeWind retiré le 2026-09-17 (perdait les refs et les styles-fonction sur l'appareil) | Un seul système de style, prévisible sur l'appareil comme en test. |
 | State serveur         | **TanStack Query v5**                                           | Même API que côté web (déjà intégré au projet).            |
 | State client          | **Zustand** + persist MMKV                                      | Léger, idéal pour panier invité.                           |
 | Auth                  | **Base44 SDK + expo-secure-store + expo-web-browser**           | Le SDK est isomorphe, on lui fournit le token via deep link. |
@@ -38,11 +38,9 @@ mob/
 ├── index.ts                 # Point d'entrée (registerRootComponent)
 ├── app.json                 # Config Expo (iOS + Android, permissions, plugins)
 ├── eas.json                 # Profils EAS Build (dev / preview / prod)
-├── babel.config.js          # Babel + nativewind + reanimated + module-resolver
-├── metro.config.js          # Metro + nativewind + alias @/*
-├── tailwind.config.js       # Tokens + presets NativeWind
+├── babel.config.js          # Babel (expo) + reanimated/worklets + module-resolver — sans NativeWind
+├── metro.config.js          # Metro + alias @/*
 ├── tsconfig.json            # TS strict + paths
-├── global.css               # CSS variables NativeWind
 ├── assets/
 │   ├── images/              # icon, splash, adaptive-icon, notification-icon
 │   └── fonts/               # Inter (optionnel)
