@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { FlatList } from 'react-native';
+import { FlatList, View, StyleSheet } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -45,29 +45,37 @@ export const PromotionsScreen: React.FC = () => {
           contentContainerStyle={{ padding: 12, gap: 12 }}
           columnWrapperStyle={{ gap: 12 }}
           renderItem={({ item }) => (
-            <ProductCard
-              product={item}
-              cartQuantity={cartQty(item.id)}
-              onAddToCart={(p) => {
-                const line = {
-                  productId: p.id,
-                  name: p.name,
-                  imageUrl: p.image_url,
-                  unitPrice: sellingPrice(p),
-                  category: p.category,
-                  unit: p.unit,
-                };
-                cart.add(line);
-                if (customerEmail) void remoteUpsertAfterAdd(customerEmail, { ...line, quantity: 1 });
-              }}
-              onRemoveFromCart={(p) => {
-                cart.remove(p.id);
-                if (customerEmail) void remoteDecrementAfterRemove(customerEmail, p.id);
-              }}
-            />
+            <View style={styles.gridCell}>
+              <ProductCard
+                product={item}
+                cartQuantity={cartQty(item.id)}
+                onAddToCart={(p) => {
+                  const line = {
+                    productId: p.id,
+                    name: p.name,
+                    imageUrl: p.image_url,
+                    unitPrice: sellingPrice(p),
+                    category: p.category,
+                    unit: p.unit,
+                    vatRate: p.vat_rate ?? null,
+                  };
+                  cart.add(line);
+                  if (customerEmail) void remoteUpsertAfterAdd(customerEmail, { ...line, quantity: 1 });
+                }}
+                onRemoveFromCart={(p) => {
+                  cart.remove(p.id);
+                  if (customerEmail) void remoteDecrementAfterRemove(customerEmail, p.id);
+                }}
+              />
+            </View>
           )}
         />
       )}
     </Screen>
   );
 };
+
+const styles = StyleSheet.create({
+  /** Cellule d'une grille 2 par 2 : sans `flex: 1`, la carte (largeur 100 %) prenait toute la ligne. */
+  gridCell: { flex: 1, maxWidth: '50%' },
+});
