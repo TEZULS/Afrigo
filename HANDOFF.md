@@ -25,7 +25,7 @@ Un dépôt monorepo accompagne ce projet : il contient également l'application 
 | Navigation        | React Navigation (native-stack, tabs, drawer) | ^7.0.0   |
 | State global      | Zustand                                  | ^5.0.2        |
 | Data fetching     | TanStack React Query                     | ^5.84.1       |
-| Styling           | NativeWind (Tailwind CSS)                | 4.1.23        |
+| Styling           | StyleSheet + tokens (`theme/`) — NativeWind retiré | -             |
 | Paiements         | @stripe/stripe-react-native              | 0.63.0        |
 | Backend SDK       | @base44/sdk                              | ^0.8.27       |
 | Stockage sécurisé | expo-secure-store                        | ~55.0.14      |
@@ -56,7 +56,6 @@ afri-go/
 │   ├── eas.json                  # Config EAS Build / Submit
 │   ├── package.json              # Dépendances et scripts npm
 │   ├── tsconfig.json             # Config TypeScript stricte
-│   ├── tailwind.config.js        # Config NativeWind
 │   ├── .env.example              # Modèle des variables d'environnement
 │   ├── .npmrc                    # legacy-peer-deps=true (NE PAS TOUCHER)
 │   ├── assets/                   # Logo, fonts, splash, icônes
@@ -88,11 +87,11 @@ Valeurs extraites de `mob/app.json` et `mob/eas.json` au moment de la remise.
 | Nom affiché                          | `AfriGo`                                     |
 | Slug Expo                            | `afrigo`                                     |
 | URL scheme                           | `afrigo`                                     |
-| Version                              | `1.0.18`                                     |
+| Version                              | `1.0.21`                                     |
 | Bundle ID iOS                        | `app.afrigo.mobile`                          |
-| Build number iOS                     | `31` (auto-incrémenté sur `production`)      |
+| Build number iOS                     | `34` (auto-incrémenté sur `production`)      |
 | Package Android                      | `app.afrigo.mobile`                          |
-| versionCode Android                  | `16` (auto-incrémenté sur `production`)      |
+| versionCode Android                  | `19` (auto-incrémenté sur `production`)      |
 | Merchant ID (Apple Pay)              | `merchant.app.afrigo.mobile`                 |
 | Associated Domain                    | `applinks:afrigo.app`                        |
 | EAS Project ID                       | `501b64d7-fd58-449d-8a1e-046a2d43e7d1`       |
@@ -454,6 +453,17 @@ npm run prebuild
 - **Bundle ID partagé** : `app.afrigo.mobile` est utilisé à la fois pour iOS et Android. Le **Merchant ID Apple Pay** est `merchant.app.afrigo.mobile`.
 - **Associated Domain** : `afrigo.app` est déclaré pour les Universal Links iOS et les App Links Android. Si le domaine change, mettre à jour `app.json` (`ios.associatedDomains` et `android.intentFilters`) **et** redéployer les fichiers `apple-app-site-association` + `assetlinks.json`.
 - **Secrets Git** : `mob/secrets/play-service-account.json` n'est **pas** versionné. À récupérer hors Git lors de la remise.
+- **NativeWind retiré (2026-09-17)** : l'app n'utilise aucun `className`, et le runtime JSX de NativeWind 4.1 (`jsxImportSource: 'nativewind'`) **perdait la `ref`** des composants fonction de RN 0.83 (`ScrollView`, `View`, `Pressable`…) : sur l'appareil, `FlatList/SectionList.scrollTo*`, `ScrollView.scrollTo` et `ref.measure()` ne faisaient rien (flèche « retour en haut », remontée du champ actif au-dessus du clavier), alors que Jest passait. `babel.config.js` / `metro.config.js` sont désormais standards ; `global.css`, `tailwind.config.js`, `nativewind-env.d.ts` supprimés. Ne pas réintroduire NativeWind sans passer en ≥ 4.2 (react-native-css-interop ≥ 0.2 corrige l'ordre `{ ref, ...props }`).
+- **Thème clair uniquement** : `app.json` → `userInterfaceStyle: "light"` (et `keyboardAppearance` clair sur les champs). Avant, en mode sombre système, iOS affichait un clavier noir translucide sur les formulaires clairs. Changement natif → nouveau build store.
+- **Retours (`Return`)** — règles côté mobile (`mob/src/utils/orderHelpers.ts`, `returnStatus.ts`) :
+  - fenêtre de **1 h** après `delivered_date` (`RETURN_WINDOW_HOURS`, fixe ; `AppSettings.return_time_limit_hours` n'est plus lu) ;
+  - le bouton « Demander un retour » reste visible tant qu'aucune demande n'est `approved`/`completed` sur la commande (plusieurs demandes possibles) ;
+  - formulaire : produit(s) + raison (`wrong_product`/`expired`) + description + **≥ 2 photos prises à l'appareil photo** (pas de galerie) + résolution `exchange`/`refund` (remboursement crédité **sur le portefeuille** par l'admin) ;
+  - suivi en 3 étapes En attente → Approuvé → Terminé (`ReturnTracker`), `rejected` = encart de refus avec `rejection_reason` ; `admin_message` affiché au client.
+  - Schéma vérifiable à tout moment : `GET https://base44.app/api/apps/<appId>/entity-schemas/Return` (header `api_key`).
+- **TVA** : les prix sont TTC ; le taux vient de `Product.vat_rate` (recopié dans `CartLine.vatRate` puis `Order.items[].vat_rate`, 0 si jamais renseigné). Panier et récapitulatif affichent HT / TVA / TTC (`mob/src/utils/cartVat.ts`). Les lignes rechargées depuis le serveur (`CartItem` sans TVA) relisent le produit (`useCartVatRates`).
+- **Facture** : bouton « Facture » du détail de commande → PDF généré sur l'appareil (`expo-print`) et partagé/enregistré via `expo-sharing` (`mob/src/services/invoice.ts`). Aucune fonction serveur.
+- **Icônes de catégories** : `CATEGORY_IMAGES` dans `mob/src/utils/categories.ts` — déposer les visuels dans `mob/assets/categories/<id>.png` et les référencer ; sans entrée, la pastille garde l'emoji.
 - **Modifs en cours non commitées** (au moment de la remise) :
   - `base44/functions/addLoyaltyPointsOnDelivery/entry.ts`
   - `base44/functions/removeLoyaltyPointsOnReturn/entry.ts`
