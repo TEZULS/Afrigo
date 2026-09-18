@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Pressable } from '@/components/ui/Pressable';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { CreditCard, RotateCcw, Banknote } from 'lucide-react-native';
+import { CreditCard, RotateCcw, Banknote, ScrollText } from 'lucide-react-native';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/ui/Card';
@@ -20,7 +20,9 @@ interface SettingsEntry {
   name: string;
   description: string;
   Icon: IconComponent;
-  route: 'PaymentMethods' | 'MyReturns' | 'MyRefunds';
+  route: 'PaymentMethods' | 'MyReturns' | 'MyRefunds' | 'Legal';
+  /** Consultable sans compte (textes légaux). */
+  publicAccess?: boolean;
 }
 
 /**
@@ -46,6 +48,13 @@ const ENTRIES: SettingsEntry[] = [
     Icon: Banknote,
     route: 'MyRefunds',
   },
+  {
+    name: 'Contrat',
+    description: 'Règlement intérieur et politique de confidentialité',
+    Icon: ScrollText,
+    route: 'Legal',
+    publicAccess: true,
+  },
 ];
 
 export const SettingsScreen: React.FC = () => {
@@ -54,8 +63,8 @@ export const SettingsScreen: React.FC = () => {
   const { isAuthenticated } = useAuth();
 
   /* Ces trois écrans exigent un compte : on renvoie vers la connexion sinon. */
-  const open = (route: SettingsEntry['route']) => {
-    if (!isAuthenticated) {
+  const open = (route: SettingsEntry['route'], publicAccess = false) => {
+    if (!isAuthenticated && !publicAccess) {
       nav.navigate('Login', { initialMode: 'login' });
       return;
     }
@@ -73,7 +82,7 @@ export const SettingsScreen: React.FC = () => {
               key={entry.route}
               accessibilityRole="button"
               accessibilityLabel={`${entry.name} — ${entry.description}`}
-              onPress={() => open(entry.route)}
+              onPress={() => open(entry.route, entry.publicAccess)}
               android_ripple={{ color: 'rgba(0,0,0,0.06)' }}
               style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
             >
