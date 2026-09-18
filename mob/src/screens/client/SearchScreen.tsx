@@ -227,6 +227,7 @@ export const SearchScreen: React.FC = () => {
           <Search size={18} color={palette.slate[500]} />
           <TextInput
             accessibilityLabel="Rechercher un produit"
+            keyboardAppearance="light"
             autoFocus
             placeholder="Rechercher un produit…"
             placeholderTextColor={palette.slate[400]}

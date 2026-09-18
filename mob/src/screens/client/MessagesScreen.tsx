@@ -275,6 +275,7 @@ export const MessagesScreen: React.FC = () => {
         <TextInput
           ref={inputRef}
           accessibilityLabel="Écrivez votre message"
+          keyboardAppearance="light"
           placeholder="Écrivez votre message…"
           placeholderTextColor={colors.mutedForeground}
           value={text}

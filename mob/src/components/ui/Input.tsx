@@ -53,7 +53,7 @@ export const Input = forwardRef<TextInput, InputProps>(
     },
     ref,
   ) => {
-    const { colors } = useTheme();
+    const { colors, scheme } = useTheme();
     const innerRef = useRef<TextInput>(null);
     useImperativeHandle(ref, () => innerRef.current as TextInput);
 
@@ -104,6 +104,14 @@ export const Input = forwardRef<TextInput, InputProps>(
               style,
             ]}
             placeholderTextColor={placeholderTextColor ?? colors.mutedForeground}
+            /*
+              Le clavier iOS suit le réglage système, pas le thème de l'app :
+              sur un téléphone en mode sombre, un clavier noir translucide
+              s'affichait sur nos formulaires clairs et laissait transparaître
+              le bouton vert placé dessous (bandeau vert au milieu des touches).
+              On aligne donc l'apparence du clavier sur le thème effectif.
+            */
+            keyboardAppearance={scheme === 'dark' ? 'dark' : 'light'}
             value={value}
             onChangeText={onChangeText}
             secureTextEntry={secureTextEntry && !revealed}
