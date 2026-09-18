@@ -48,6 +48,8 @@ export type RootStackParamList = {
   Search: undefined;
   ProductDetails: { id: string };
   Promotions: undefined;
+  /** Nouveautés du catalogue (7 derniers jours), « Voir + » de l'accueil. */
+  NewProducts: undefined;
   /** Recettes d'Afrique : liste des pays, recettes d'un pays, détail. */
   Recipes: { country?: string; recipeId?: string } | undefined;
   /** `lineKeys` : lignes du panier cochées (`cartLineKey`) ; absent = tout le panier. */
@@ -73,8 +75,10 @@ export type RootStackParamList = {
   Notifications: undefined;
   Profile: undefined;
   ProfileEdit: undefined;
-  /** Page « Paramètres » : Paiement / Mes retours / Mes remboursements. */
+  /** Page « Paramètres » : Paiement / Mes retours / Mes remboursements / Contrat. */
   Settings: undefined;
+  /** Règlement intérieur + politique de confidentialité (consultation). */
+  Legal: undefined;
 
   // Auth
   Login: { initialMode?: 'login' | 'register' } | undefined;
