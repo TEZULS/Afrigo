@@ -10,7 +10,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { X, Menu, ArrowUp } from 'lucide-react-native';
+import { X, Menu, ArrowUp, ChevronRight } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Screen } from '@/components/ui/Screen';
@@ -19,6 +19,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductCard, ProductDTO } from '@/components/products/ProductCard';
 import { CategoryFilter } from '@/components/products/CategoryFilter';
 import { ShopModeSegment } from '@/components/home/ShopModeSegment';
+import { WelcomeMessageDialog } from '@/components/home/WelcomeMessageDialog';
 import { useCart } from '@/stores/cart';
 import { useMenuDrawer } from '@/stores/menuDrawer';
 import { useHomeSearch } from '@/stores/homeSearch';
@@ -34,9 +35,15 @@ import {
 import { palette } from '@/theme/tokens';
 import type { RootStackParamList } from '@/navigation/types';
 import { sellingPrice } from '@/utils/productPricing';
+import { selectNewProducts } from '@/utils/newProducts';
 
 const H_PAD = 16;
 const GRID_GAP = 12;
+/** Nombre de produits montrés dans les sections « Promotions » / « Nouveaux produits ». */
+const HOME_TEASER_SIZE = 2;
+/** Défilement (px) à partir duquel l'en-tête passe en version réduite, et en dessous duquel il se déplie. */
+const COMPACT_HEADER_ON = 48;
+const COMPACT_HEADER_OFF = 12;
 /** Défilement (px) au-delà duquel la flèche « retour en haut » apparaît. */
 const SCROLL_TOP_THRESHOLD = 480;
 
@@ -54,16 +61,6 @@ export const HomeScreen: React.FC = () => {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const listRef = useRef<SectionList<unknown>>(null);
 
-  /** Tap sur le logo « AfriGo » : remonte tout en haut de la liste produits. */
-  const scrollToTop = useCallback(() => {
-    listRef.current?.scrollToLocation({
-      sectionIndex: 0,
-      itemIndex: 0,
-      animated: true,
-      viewPosition: 0,
-    });
-  }, []);
-
   /**
    * Flèche flottante « retour en haut » : n'apparaît qu'une fois la liste
    * bien défilée (comme sur le web), pour ne pas gêner le sélecteur de rayon.
@@ -71,9 +68,47 @@ export const HomeScreen: React.FC = () => {
    * d'état, pas à chaque événement de scroll.
    */
   const [showScrollTop, setShowScrollTop] = useState(false);
+  /**
+   * En-tête réduit : dès que le catalogue défile, le bandeau AfriGo / Bonjour,
+   * le sélecteur de rayon et les catégories restent épinglés en haut mais
+   * prennent moins de place. Hystérésis pour éviter le clignotement autour du
+   * seuil.
+   */
+  const [compactHeader, setCompactHeader] = useState(false);
   const onListScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const past = e.nativeEvent.contentOffset.y > SCROLL_TOP_THRESHOLD;
+    const y = e.nativeEvent.contentOffset.y;
+    const past = y > SCROLL_TOP_THRESHOLD;
     setShowScrollTop((prev) => (prev === past ? prev : past));
+    setCompactHeader((prev) => (prev ? y > COMPACT_HEADER_OFF : y > COMPACT_HEADER_ON));
+  }, []);
+
+  /**
+   * Remonte tout en haut de la liste produits (logo « AfriGo » et flèche
+   * flottante).
+   *
+   * On pilote directement le ScrollView sous-jacent (`scrollTo`) : contrairement
+   * à `scrollToLocation`, il ne dépend pas des métriques des cellules
+   * virtualisées (cellules du haut démontées après un long défilement). La
+   * flèche est masquée dès l'appui — retour visuel immédiat — et `onScroll` la
+   * réaffiche de lui-même si la liste est toujours loin du haut.
+   *
+   * NB : la panne « la flèche ne fait rien » venait de NativeWind, qui perdait
+   * la `ref` interne du ScrollView (cf. `babel.config.js`) ; sans elle,
+   * `scrollTo` comme `scrollToLocation` étaient des no-op sur l'appareil.
+   */
+  const scrollToTop = useCallback(() => {
+    setShowScrollTop(false);
+    const list = listRef.current;
+    if (!list) return;
+    const scrollView = list.getScrollResponder?.() as
+      | { scrollTo?: (opts: { x?: number; y: number; animated?: boolean }) => void }
+      | null
+      | undefined;
+    if (scrollView?.scrollTo) {
+      scrollView.scrollTo({ x: 0, y: 0, animated: true });
+      return;
+    }
+    list.scrollToLocation({ sectionIndex: 0, itemIndex: 0, animated: true, viewPosition: 0 });
   }, []);
 
   const userObj = user as Record<string, unknown> | null;
@@ -184,6 +219,8 @@ export const HomeScreen: React.FC = () => {
     () => filtered.filter((p) => p.is_promotion && p.promotion_price != null),
     [filtered],
   );
+  /** Nouveautés : mêmes règles que le site (créés depuis 7 jours, plus récents d'abord). */
+  const newProducts = useMemo(() => selectNewProducts(filtered), [filtered]);
   const regularProducts = useMemo(
     () => filtered.filter((p) => !(p.is_promotion && p.promotion_price != null)),
     [filtered],
@@ -204,27 +241,81 @@ export const HomeScreen: React.FC = () => {
   const listInnerPad = GRID_GAP / 2;
   const horizontalPad = listInnerPad + H_PAD / 2;
 
-  const promoPairs = useMemo(() => chunkProductPairs(promoProducts), [promoProducts]);
   const regularPairs = useMemo(() => chunkProductPairs(regularProducts), [regularProducts]);
 
   /**
-   * Le premier item de la section est un sentinel `__categories__`. Les
-   * promotions sont placées en premier (sans titre), suivies du reste du
-   * catalogue. Une seule SectionList est utilisée pour bénéficier du sticky
-   * `renderSectionHeader` (search + ShopMode).
+   * Le premier item de la section est un sentinel `__categories__`. Viennent
+   * ensuite, quand il y en a : « Promotions » (2 produits max + « Voir + »
+   * vers la page Promotions), « Nouveaux produits » (2 max + « Voir + »), puis
+   * tout le catalogue sous « Nos produits ». Une seule SectionList est utilisée
+   * pour bénéficier du sticky `renderSectionHeader` (search + ShopMode).
    */
-  type Row = { kind: 'categories' } | { kind: 'pair'; pair: ProductDTO[] };
+  type Row =
+    | { kind: 'heading'; title: string; emoji?: string; more?: () => void }
+    | { kind: 'pair'; pair: ProductDTO[] };
   const sections = useMemo((): { title: string; data: Row[] }[] => {
-    const data: Row[] = [{ kind: 'categories' as const }];
-    promoPairs.forEach((pair) => data.push({ kind: 'pair' as const, pair }));
+    const data: Row[] = [];
+    if (promoProducts.length > 0) {
+      data.push({
+        kind: 'heading',
+        title: 'Promotions',
+        emoji: '🏷️',
+        more: promoProducts.length > HOME_TEASER_SIZE ? () => nav.navigate('Promotions') : undefined,
+      });
+      data.push({ kind: 'pair', pair: promoProducts.slice(0, HOME_TEASER_SIZE) });
+    }
+    if (newProducts.length > 0) {
+      data.push({
+        kind: 'heading',
+        title: 'Nouveaux produits',
+        emoji: '✨',
+        more: newProducts.length > HOME_TEASER_SIZE ? () => nav.navigate('NewProducts') : undefined,
+      });
+      data.push({ kind: 'pair', pair: newProducts.slice(0, HOME_TEASER_SIZE) });
+    }
+    if (regularPairs.length > 0 && (promoProducts.length > 0 || newProducts.length > 0)) {
+      data.push({ kind: 'heading', title: 'Nos produits' });
+    }
     regularPairs.forEach((pair) => data.push({ kind: 'pair' as const, pair }));
     return [{ title: '', data }];
-  }, [promoPairs, regularPairs]);
+  }, [promoProducts, newProducts, regularPairs, nav]);
 
   const listEmptyDescription =
     shopMode === 'cosmetique'
       ? 'Aucun article dans le rayon Cosmétiques pour le moment. Les nouveautés arrivent bientôt.'
       : 'Modifiez vos filtres ou votre recherche.';
+
+  /**
+   * Filtres circulaires (Tous / Fruits…) — dans l'en-tête épinglé de la
+   * section, sous le sélecteur de rayon : restent visibles en défilant
+   * (version réduite dès que la liste bouge).
+   */
+  const renderCategoryRow = useCallback(() => {
+    /*
+      Aucun produit dans le rayon courant (typiquement « Cosmétiques » encore
+      vide) → pas de pastille de catégorie du tout, donc pas de barre ni de
+      séparateur à afficher.
+    */
+    if (availableCategories.length === 0) return null;
+    return (
+      <View
+        style={[
+          styles.scrollCategoryBar,
+          compactHeader ? styles.scrollCategoryBarCompact : null,
+          { backgroundColor: colors.background },
+        ]}
+      >
+        <CategoryFilter
+          selected={category}
+          onSelect={setCategory}
+          availableCategories={availableCategories}
+          shopMode={shopMode}
+          horizontalInset={H_PAD}
+          compact={compactHeader}
+        />
+      </View>
+    );
+  }, [category, availableCategories, shopMode, compactHeader, colors.background]);
 
   /**
    * En-tête de section : segment Alimentation/Cosmétiques (fond blanc,
@@ -238,14 +329,21 @@ export const HomeScreen: React.FC = () => {
    */
   const renderSectionHeader = useCallback(
     () => (
-      <View>
+      <View style={{ backgroundColor: colors.background }}>
         {/* ShopMode (Alimentation/Cosmétiques) sur fond blanc — masqué tant
             qu'aucun produit cosmétique n'existe au catalogue. */}
         {hasCosmetiques ? (
-          <View style={[styles.stickyShopMode, { backgroundColor: colors.background }]}>
-            <ShopModeSegment mode={shopMode} onChange={setShopMode} />
+          <View
+            style={[
+              styles.stickyShopMode,
+              compactHeader ? styles.stickyShopModeCompact : null,
+              { backgroundColor: colors.background },
+            ]}
+          >
+            <ShopModeSegment mode={shopMode} onChange={setShopMode} compact={compactHeader} />
           </View>
         ) : null}
+        {renderCategoryRow()}
         {search.trim() ? (
           <View style={[styles.searchChipRow, { backgroundColor: colors.background }]}>
             <Pressable
@@ -267,37 +365,44 @@ export const HomeScreen: React.FC = () => {
         ) : null}
       </View>
     ),
-    [shopMode, hasCosmetiques, search, colors.background, colors.surfaceMuted, colors.border, colors.foreground],
+    [
+      shopMode,
+      hasCosmetiques,
+      search,
+      compactHeader,
+      renderCategoryRow,
+      colors.background,
+      colors.surfaceMuted,
+      colors.border,
+      colors.foreground,
+    ],
   );
 
-  /**
-   * Filtres circulaires (Tous / Fruits…) — rendu comme PREMIER item de la
-   * section data : défile naturellement avec les produits.
-   */
-  const renderCategoryRow = useCallback(() => {
-    /*
-      Aucun produit dans le rayon courant (typiquement « Cosmétiques » encore
-      vide) → pas de pastille de catégorie du tout, donc pas de barre ni de
-      séparateur à afficher.
-    */
-    if (availableCategories.length === 0) return null;
-    return (
-      <View style={[styles.scrollCategoryBar, { backgroundColor: colors.background }]}>
-        <CategoryFilter
-          selected={category}
-          onSelect={setCategory}
-          availableCategories={availableCategories}
-          shopMode={shopMode}
-          horizontalInset={H_PAD}
-        />
-      </View>
-    );
-  }, [category, availableCategories, shopMode, colors.background]);
 
   const renderRow = useCallback(
     ({ item }: { item: Row }) => {
-      if (item.kind === 'categories') {
-        return renderCategoryRow();
+      if (item.kind === 'heading') {
+        return (
+          <View style={[styles.sectionHeading, { paddingHorizontal: H_PAD }]}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]} numberOfLines={1}>
+              {item.emoji ? `${item.emoji} ` : ''}
+              {item.title}
+            </Text>
+            {item.more ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Voir tous les ${item.title.toLowerCase()}`}
+                onPress={item.more}
+                hitSlop={8}
+                style={styles.seeMore}
+                testID={`home-see-more-${item.title}`}
+              >
+                <Text style={[styles.seeMoreText, { color: palette.brand.orange }]}>Voir plus</Text>
+                <ChevronRight size={16} color={palette.brand.orange} />
+              </Pressable>
+            ) : null}
+          </View>
+        );
       }
       const pair = item.pair;
       return (
@@ -323,6 +428,7 @@ export const HomeScreen: React.FC = () => {
                     unitPrice: sellingPrice(p),
                     category: p.category,
                     unit: p.unit,
+                    vatRate: p.vat_rate ?? null,
                   };
                   cart.add(line);
                   if (customerEmail) void remoteUpsertAfterAdd(customerEmail, { ...line, quantity: 1 });
@@ -340,7 +446,7 @@ export const HomeScreen: React.FC = () => {
         </View>
       );
     },
-    [cart, cartQty, customerEmail, renderCategoryRow, listInnerPad, horizontalPad],
+    [cart, cartQty, customerEmail, listInnerPad, horizontalPad, colors.foreground],
   );
 
   const renderProductsList = () => (
@@ -348,10 +454,12 @@ export const HomeScreen: React.FC = () => {
       ref={listRef as unknown as React.Ref<SectionList<Row>>}
       style={styles.list}
       sections={sections}
-      /* Sticky natif désactivé : le sélecteur de rayon défile avec la liste. */
-      stickySectionHeadersEnabled={false}
+      /* En-tête de section épinglé : rayon + catégories restent en haut en défilant. */
+      stickySectionHeadersEnabled
       keyExtractor={(item, idx) =>
-        item.kind === 'categories' ? 'cats' : item.pair.map((p) => p.id).join('-') + ':' + idx
+        item.kind === 'heading'
+          ? `heading:${item.title}`
+          : item.pair.map((p) => p.id).join('-') + ':' + idx
       }
       renderSectionHeader={renderSectionHeader}
       renderItem={renderRow}
@@ -388,7 +496,13 @@ export const HomeScreen: React.FC = () => {
   return (
     <Screen scroll={false} paddingHorizontal={0} bg={colors.surfaceMuted}>
       <View style={styles.shell}>
-        <View style={[styles.header, { backgroundColor: colors.surfaceMuted }]}>
+        <View
+          style={[
+            styles.header,
+            compactHeader ? styles.headerCompact : null,
+            { backgroundColor: colors.surfaceMuted },
+          ]}
+        >
           <View style={styles.brandRow}>
             <Pressable
               accessibilityRole="link"
@@ -398,7 +512,9 @@ export const HomeScreen: React.FC = () => {
               android_ripple={{ color: 'rgba(0,0,0,0.06)' }}
               style={styles.brandBtn}
             >
-              <Text style={[styles.brand, { color: colors.brandOrange }]}>AfriGo</Text>
+              <Text style={[styles.brand, compactHeader ? styles.brandCompact : null, { color: colors.brandOrange }]}>
+                AfriGo
+              </Text>
             </Pressable>
             {/*
               Bloc de droite : salutation (ou bouton de connexion) suivi du
@@ -410,7 +526,11 @@ export const HomeScreen: React.FC = () => {
                 /* Simple libellé : le profil s'ouvre depuis le menu ☰. */
                 <View style={styles.greeting}>
                   <Text
-                    style={[styles.greetingText, { color: colors.foreground }]}
+                    style={[
+                      styles.greetingText,
+                      compactHeader ? styles.greetingTextCompact : null,
+                      { color: colors.foreground },
+                    ]}
                     numberOfLines={1}
                   >
                     Bonjour, {firstName}
@@ -433,7 +553,7 @@ export const HomeScreen: React.FC = () => {
                 onPress={() => openMenu('HomeTab')}
                 hitSlop={8}
                 android_ripple={{ color: 'rgba(0,0,0,0.06)', borderless: true, radius: 22 }}
-                style={[styles.menuBtn, { borderColor: colors.border }]}
+                style={[styles.menuBtn, compactHeader ? styles.menuBtnCompact : null, { borderColor: colors.border }]}
               >
                 <Menu size={20} color={colors.foreground} />
               </Pressable>
@@ -449,21 +569,32 @@ export const HomeScreen: React.FC = () => {
             - items suivants : paires de produits
           */}
           {renderProductsList()}
+          {/*
+            Calque flottant au-dessus de la liste (dernier enfant → au-dessus
+            dans l'ordre de rendu ET de hit-test, sur les deux plateformes).
+            `box-none` : le calque lui-même laisse passer les touches vers la
+            liste ; seule la flèche les capte.
+          */}
           {showScrollTop ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Retour en haut de la page"
-              onPress={scrollToTop}
-              hitSlop={8}
-              android_ripple={{ color: 'rgba(0,0,0,0.06)', borderless: true, radius: 26 }}
-              style={[styles.scrollTopBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-            >
-              <ArrowUp size={22} color={colors.foreground} strokeWidth={2.5} />
-            </Pressable>
+            <View style={styles.scrollTopLayer} pointerEvents="box-none">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Retour en haut de la page"
+                testID="home-scroll-top"
+                onPress={scrollToTop}
+                hitSlop={12}
+                android_ripple={{ color: 'rgba(0,0,0,0.06)', borderless: true, radius: 26 }}
+                style={[styles.scrollTopBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
+                <ArrowUp size={22} color={colors.foreground} strokeWidth={2.5} />
+              </Pressable>
+            </View>
           ) : null}
         </View>
       </View>
 
+      {/* Message de bienvenue configuré par l'admin (WelcomeMessage), comme sur le site. */}
+      <WelcomeMessageDialog />
     </Screen>
   );
 };
@@ -476,6 +607,10 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     gap: 4,
   },
+  headerCompact: { paddingTop: 0, paddingBottom: 6 },
+  brandCompact: { fontSize: 20 },
+  greetingTextCompact: { fontSize: 14 },
+  menuBtnCompact: { width: 34, height: 34, borderRadius: 10 },
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -584,7 +719,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(15,23,42,0.06)',
   },
-  /** Catégories (Tous / Fruits & Légumes / …) — défile avec le catalogue. */
+  stickyShopModeCompact: { paddingTop: 6, paddingBottom: 2 },
+  scrollCategoryBarCompact: { paddingTop: 4, paddingBottom: 2 },
+  /** Catégories (Tous / Fruits & Légumes / …) — épinglées sous le rayon. */
   scrollCategoryBar: {
     paddingTop: 8,
     paddingBottom: 4,
@@ -602,12 +739,28 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
+  sectionHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 6,
+    paddingBottom: 10,
+  },
+  sectionTitle: { fontSize: 17, fontWeight: '800', flexShrink: 1 },
+  seeMore: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingVertical: 4, paddingLeft: 8 },
+  seeMoreText: { fontSize: 13, fontWeight: '700' },
   productRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
   gridCell: {
     width: '50%',
+  },
+  /** Calque plein écran (transparent aux touches) qui porte la flèche flottante. */
+  scrollTopLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    ...Platform.select({ android: { elevation: 6 }, default: {} }),
   },
   /** Flèche flottante « retour en haut » — en haut à gauche, comme sur le web. */
   scrollTopBtn: {
