@@ -8,7 +8,6 @@ describe('passesShopMode', () => {
     { category: 'sec' },
     { category: 'frais' },
     { category: 'boissons' },
-    { category: 'entretien' },
   ];
   const cosmetique = { category: 'cosmetique' };
   /*
@@ -23,6 +22,8 @@ describe('passesShopMode', () => {
     { category: 'cosmetique_bebe' },
     { category: 'cosmetique_visage' },
     { category: 'cosmetique_soins_beaute' },
+    // « Entretien » est rangé dans le rayon Cosmétiques sur l'app (demande client).
+    { category: 'entretien' },
   ];
 
   it('mode food : exclut cosmétique', () => {

@@ -25,6 +25,8 @@ export type ShopMode = 'food' | 'cosmetique';
 interface ShopModeSegmentProps {
   mode: ShopMode;
   onChange: (mode: ShopMode) => void;
+  /** Version réduite (en-tête épinglé pendant le défilement). */
+  compact?: boolean;
 }
 
 /**
@@ -33,17 +35,17 @@ interface ShopModeSegmentProps {
  * `Pressable` + ripple ignore souvent le background → pas de « carré blanc » et
  * texte vert (`Alimentation`) illisible sur le vert.
  */
-export const ShopModeSegment: React.FC<ShopModeSegmentProps> = ({ mode, onChange }) => {
+export const ShopModeSegment: React.FC<ShopModeSegmentProps> = ({ mode, onChange, compact = false }) => {
   const { width: ww } = useWindowDimensions();
   // Compact, même gabarit que la pastille du web déployé : ~44 px de haut,
-  // vignette 24 px, pas de pleine largeur.
-  const img = Math.min(26, Math.max(20, Math.round(ww * 0.06)));
-  const fs = ww < 340 ? 11 : ww < 400 ? 12 : 13;
+  // vignette 24 px, pas de pleine largeur. En mode réduit : ~32 px.
+  const img = compact ? 18 : Math.min(26, Math.max(20, Math.round(ww * 0.06)));
+  const fs = compact ? 11 : ww < 340 ? 11 : ww < 400 ? 12 : 13;
   const lineH = Math.round(fs * 1.3);
 
   return (
     <View style={styles.wrapOuter} accessibilityRole="tablist">
-      <View style={styles.track}>
+      <View style={[styles.track, compact ? styles.trackCompact : null]}>
         <SegmentItem
           label="Alimentation"
           selected={mode === 'food'}
@@ -54,6 +56,7 @@ export const ShopModeSegment: React.FC<ShopModeSegmentProps> = ({ mode, onChange
           imgSize={img}
           fontSize={fs}
           lineHeight={lineH}
+          compact={compact}
           hint="Voir les produits alimentaires"
         />
         <View style={{ width: 6 }} />
@@ -67,6 +70,7 @@ export const ShopModeSegment: React.FC<ShopModeSegmentProps> = ({ mode, onChange
           imgSize={img}
           fontSize={fs}
           lineHeight={lineH}
+          compact={compact}
           hint="Voir les cosmétiques"
         />
       </View>
@@ -85,6 +89,7 @@ interface SegmentItemProps {
   fontSize: number;
   lineHeight: number;
   hint: string;
+  compact?: boolean;
 }
 
 function SegmentItem({
@@ -98,11 +103,12 @@ function SegmentItem({
   fontSize,
   lineHeight,
   hint,
+  compact = false,
 }: SegmentItemProps) {
   const labelColor = selected ? activeLabelColor : inactiveLabelColor;
 
   return (
-    <View style={styles.slot}>
+    <View style={[styles.slot, compact ? styles.slotCompact : null]}>
       <Pressable
         onPress={onPress}
         accessibilityRole="tab"
@@ -113,7 +119,7 @@ function SegmentItem({
         hitSlop={4}
         style={({ pressed }) => [styles.pressable, { opacity: pressed ? 0.92 : 1 }]}
       >
-        <View style={[styles.card, selected ? styles.cardSelected : styles.cardIdle]}>
+        <View style={[styles.card, compact ? styles.cardCompact : null, selected ? styles.cardSelected : styles.cardIdle]}>
           <Image
             source={{ uri: thumb }}
             resizeMode="cover"
@@ -169,6 +175,9 @@ const styles = StyleSheet.create({
     minHeight: 40,
     justifyContent: 'center',
   },
+  slotCompact: { minHeight: 30 },
+  trackCompact: { paddingVertical: 2 },
+  cardCompact: { minHeight: 28, paddingVertical: 2 },
   pressable: {
     width: '100%',
     alignSelf: 'stretch',

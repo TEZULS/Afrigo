@@ -11,6 +11,7 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import { ChevronRight, ChevronLeft } from 'lucide-react-native';
+import { Image } from 'expo-image';
 import { palette } from '@/theme/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
 
@@ -32,7 +33,11 @@ interface Props {
   availableCategories: string[];
   shopMode?: 'food' | 'cosmetique';
   horizontalInset?: number;
+  /** Version réduite (barre épinglée pendant le défilement) : pastilles et libellés plus petits. */
+  compact?: boolean;
 }
+
+const COMPACT_ITEM_WIDTH = 62;
 
 export const CategoryFilter: React.FC<Props> = ({
   selected,
@@ -40,7 +45,9 @@ export const CategoryFilter: React.FC<Props> = ({
   availableCategories,
   shopMode = 'food',
   horizontalInset = 16,
+  compact = false,
 }) => {
+  const itemWidth = compact ? COMPACT_ITEM_WIDTH : ITEM_WIDTH;
   const { colors } = useTheme();
   const scrollRef = useRef<ScrollView>(null);
   const [scrollX, setScrollX] = useState(0);
@@ -117,12 +124,13 @@ export const CategoryFilter: React.FC<Props> = ({
               }
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
-              style={{ width: ITEM_WIDTH }}
+              style={{ width: itemWidth }}
             >
-              <View style={styles.col}>
+              <View style={[styles.col, { width: itemWidth, gap: compact ? 4 : 8 }]}>
                 <View
                   style={[
                     styles.iconRing,
+                    compact ? styles.iconRingCompact : null,
                     {
                       backgroundColor: active ? palette.orange[50] : colors.background,
                       borderColor: active ? palette.brand.orange : 'rgba(15,23,42,0.09)',
@@ -130,16 +138,29 @@ export const CategoryFilter: React.FC<Props> = ({
                     },
                   ]}
                 >
-                  <Text style={styles.emoji}>{cat.emoji}</Text>
+                  {cat.image ? (
+                    <Image
+                      source={cat.image}
+                      style={styles.iconImage}
+                      // Comme sur le site : l'image remplit tout le rond (object-cover).
+                      contentFit="cover"
+                      accessibilityLabel={cat.label}
+                      testID={`category-image-${cat.id}`}
+                    />
+                  ) : (
+                    <Text style={compact ? styles.emojiCompact : styles.emoji}>{cat.emoji}</Text>
+                  )}
                 </View>
                 <Text
                   style={[
                     styles.label,
+                    { width: itemWidth - 2 },
+                    compact ? styles.labelCompact : null,
                     active
                       ? { color: palette.brand.orange, fontWeight: '700' }
                       : { color: palette.slate[600], fontWeight: '600' },
                   ]}
-                  numberOfLines={2}
+                  numberOfLines={compact ? 1 : 2}
                 >
                   {cat.label}
                 </Text>
@@ -196,11 +217,16 @@ const styles = StyleSheet.create({
     borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
+  iconRingCompact: { width: 38, height: 38, borderRadius: 19 },
   emoji: {
     fontSize: 26,
     lineHeight: 30,
   },
+  emojiCompact: { fontSize: 18, lineHeight: 22 },
+  labelCompact: { fontSize: 10, lineHeight: 12 },
+  iconImage: { width: '100%', height: '100%' },
   label: {
     fontSize: 11,
     fontWeight: '600',
