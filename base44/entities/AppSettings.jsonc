@@ -57,11 +57,6 @@
       "description": "Activer le syst\u00e8me de cr\u00e9neaux de livraison",
       "default": false
     },
-    "cash_on_delivery_enabled": {
-      "type": "boolean",
-      "description": "Autoriser le paiement \u00e0 la livraison (d\u00e9sactiv\u00e9 = carte bancaire / portefeuille uniquement)",
-      "default": true
-    },
     "stripe_publishable_key": {
       "type": "string",
       "description": "Cl\u00e9 publique Stripe (pk_test ou pk_live)"
