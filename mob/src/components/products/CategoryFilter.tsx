@@ -1,5 +1,6 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useMemo } from 'react';
 import {
+  Animated,
   ScrollView,
   Pressable,
   Text,
@@ -20,12 +21,23 @@ import {
   COSMETIQUE_CATEGORY_IDS,
   FOOD_CATEGORY_IDS,
 } from '@/utils/categories';
+import type { CollapseProgress } from '@/utils/headerCollapse';
 
 /** Réexport historique : l'écran de recherche importe `CATEGORIES` d'ici. */
 export { CATEGORIES };
 
 const ITEM_WIDTH = 78;
+const COMPACT_ITEM_WIDTH = 62;
+const RING = 54;
+const COMPACT_RING = 38;
 const SCROLL_STEP = 200;
+
+/**
+ * Écrans qui n'animent rien : pastilles figées à leur taille normale.
+ * L'accueil, lui, branche le défilement de la liste sur `progress`, ce qui fait
+ * rétrécir les pastilles en continu (et non d'un coup au passage d'un seuil).
+ */
+const STATIC_PROGRESS = new Animated.Value(0);
 
 interface Props {
   selected: string;
@@ -33,11 +45,9 @@ interface Props {
   availableCategories: string[];
   shopMode?: 'food' | 'cosmetique';
   horizontalInset?: number;
-  /** Version réduite (barre épinglée pendant le défilement) : pastilles et libellés plus petits. */
-  compact?: boolean;
+  /** Repli progressif (0 → 1) piloté par le défilement de l'accueil. */
+  progress?: CollapseProgress;
 }
-
-const COMPACT_ITEM_WIDTH = 62;
 
 export const CategoryFilter: React.FC<Props> = ({
   selected,
@@ -45,10 +55,26 @@ export const CategoryFilter: React.FC<Props> = ({
   availableCategories,
   shopMode = 'food',
   horizontalInset = 16,
-  compact = false,
+  progress = STATIC_PROGRESS,
 }) => {
-  const itemWidth = compact ? COMPACT_ITEM_WIDTH : ITEM_WIDTH;
   const { colors } = useTheme();
+  /** Tailles interpolées entre la version normale et la version réduite. */
+  const size = useMemo(() => {
+    const to = (from: number, toValue: number) =>
+      progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [from, toValue],
+        extrapolate: 'clamp',
+      });
+    return {
+      item: to(ITEM_WIDTH, COMPACT_ITEM_WIDTH),
+      label: to(ITEM_WIDTH - 2, COMPACT_ITEM_WIDTH - 2),
+      ring: to(RING, COMPACT_RING),
+      ringRadius: to(RING / 2, COMPACT_RING / 2),
+      emoji: to(26, 18),
+      emojiLine: to(30, 22),
+    };
+  }, [progress]);
   const scrollRef = useRef<ScrollView>(null);
   const [scrollX, setScrollX] = useState(0);
   const [contentW, setContentW] = useState(0);
@@ -124,14 +150,15 @@ export const CategoryFilter: React.FC<Props> = ({
               }
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
-              style={{ width: itemWidth }}
             >
-              <View style={[styles.col, { width: itemWidth, gap: compact ? 4 : 8 }]}>
-                <View
+              <Animated.View style={[styles.col, { width: size.item }]}>
+                <Animated.View
                   style={[
                     styles.iconRing,
-                    compact ? styles.iconRingCompact : null,
                     {
+                      width: size.ring,
+                      height: size.ring,
+                      borderRadius: size.ringRadius,
                       backgroundColor: active ? palette.orange[50] : colors.background,
                       borderColor: active ? palette.brand.orange : 'rgba(15,23,42,0.09)',
                       borderWidth: active ? 2 : Math.max(StyleSheet.hairlineWidth, 1),
@@ -148,23 +175,26 @@ export const CategoryFilter: React.FC<Props> = ({
                       testID={`category-image-${cat.id}`}
                     />
                   ) : (
-                    <Text style={compact ? styles.emojiCompact : styles.emoji}>{cat.emoji}</Text>
+                    <Animated.Text
+                      style={[styles.emoji, { fontSize: size.emoji, lineHeight: size.emojiLine }]}
+                    >
+                      {cat.emoji}
+                    </Animated.Text>
                   )}
-                </View>
-                <Text
+                </Animated.View>
+                <Animated.Text
                   style={[
                     styles.label,
-                    { width: itemWidth - 2 },
-                    compact ? styles.labelCompact : null,
+                    { width: size.label },
                     active
                       ? { color: palette.brand.orange, fontWeight: '700' }
                       : { color: palette.slate[600], fontWeight: '600' },
                   ]}
-                  numberOfLines={compact ? 1 : 2}
+                  numberOfLines={2}
                 >
                   {cat.label}
-                </Text>
-              </View>
+                </Animated.Text>
+              </Animated.View>
             </Pressable>
           );
         })}
@@ -208,24 +238,21 @@ const styles = StyleSheet.create({
   col: {
     alignItems: 'center',
     justifyContent: 'flex-start',
-    gap: 8,
+    gap: 6,
     width: ITEM_WIDTH,
   },
   iconRing: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: RING,
+    height: RING,
+    borderRadius: RING / 2,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  iconRingCompact: { width: 38, height: 38, borderRadius: 19 },
   emoji: {
     fontSize: 26,
     lineHeight: 30,
   },
-  emojiCompact: { fontSize: 18, lineHeight: 22 },
-  labelCompact: { fontSize: 10, lineHeight: 12 },
   iconImage: { width: '100%', height: '100%' },
   label: {
     fontSize: 11,
