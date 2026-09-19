@@ -64,9 +64,12 @@ export const activePrivacyPolicy = (docs: PrivacyPolicyDoc[]): PrivacyPolicyDoc 
   [...docs].filter((d) => d.is_active === true).sort(newest)[0] ?? null;
 
 /**
- * Document à afficher dans « Paramètres › Contrat » : l'actif s'il existe,
- * sinon le plus récent (pour que la page ne soit jamais vide tant qu'un texte
- * a été rédigé).
+ * Document à faire accepter et à afficher dans « Paramètres › Règlement et
+ * confidentialité » : l'actif s'il existe, sinon le plus récent.
+ *
+ * Le repli sur le plus récent est volontaire : les textes publiés dans base44
+ * restent souvent `is_active: false`, et l'accord doit malgré tout être demandé
+ * à tout le monde au lancement (demande du 2026-09-19).
  */
 export const displayableRegulations = (docs: RegulationsDoc[]): RegulationsDoc | null =>
   activeRegulations(docs) ?? [...docs].sort(newest)[0] ?? null;
