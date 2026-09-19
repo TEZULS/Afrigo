@@ -1,13 +1,13 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
-  Image,
-  Text,
+  Animated,
   StyleSheet,
   View,
   useWindowDimensions,
   Platform,
 } from 'react-native';
 import { Pressable } from '@/components/ui/Pressable';
+import type { CollapseProgress } from '@/utils/headerCollapse';
 
 /** Identique aux URLs `Home.jsx`. */
 export const SHOP_MODE_IMG_FOOD =
@@ -22,11 +22,14 @@ const TEXT_COSMETIC_ACTIVE = '#ec4899';
 
 export type ShopMode = 'food' | 'cosmetique';
 
+/** Sélecteur figé à sa taille normale quand l'écran n'anime rien. */
+const STATIC_PROGRESS = new Animated.Value(0);
+
 interface ShopModeSegmentProps {
   mode: ShopMode;
   onChange: (mode: ShopMode) => void;
-  /** Version réduite (en-tête épinglé pendant le défilement). */
-  compact?: boolean;
+  /** Repli progressif (0 = taille normale, 1 = version réduite épinglée). */
+  progress?: CollapseProgress;
 }
 
 /**
@@ -35,17 +38,38 @@ interface ShopModeSegmentProps {
  * `Pressable` + ripple ignore souvent le background → pas de « carré blanc » et
  * texte vert (`Alimentation`) illisible sur le vert.
  */
-export const ShopModeSegment: React.FC<ShopModeSegmentProps> = ({ mode, onChange, compact = false }) => {
+export const ShopModeSegment: React.FC<ShopModeSegmentProps> = ({
+  mode,
+  onChange,
+  progress = STATIC_PROGRESS,
+}) => {
   const { width: ww } = useWindowDimensions();
-  // Compact, même gabarit que la pastille du web déployé : ~44 px de haut,
-  // vignette 24 px, pas de pleine largeur. En mode réduit : ~32 px.
-  const img = compact ? 18 : Math.min(26, Math.max(20, Math.round(ww * 0.06)));
-  const fs = compact ? 11 : ww < 340 ? 11 : ww < 400 ? 12 : 13;
-  const lineH = Math.round(fs * 1.3);
+  // Taille normale : même gabarit que la pastille du web déployé (~44 px de
+  // haut, vignette 24 px). Repliée : ~32 px, vignette 18 px.
+  const img = Math.min(26, Math.max(20, Math.round(ww * 0.06)));
+  const fs = ww < 340 ? 11 : ww < 400 ? 12 : 13;
+  const size = useMemo(() => {
+    const to = (from: number, toValue: number) =>
+      progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [from, toValue],
+        extrapolate: 'clamp',
+      });
+    return {
+      img: to(img, 18),
+      imgRadius: to(img / 2, 9),
+      fontSize: to(fs, 11),
+      lineHeight: to(Math.round(fs * 1.3), 14),
+      trackPad: to(3, 2),
+      slotHeight: to(40, 30),
+      cardHeight: to(38, 28),
+      cardPad: to(5, 2),
+    };
+  }, [progress, img, fs]);
 
   return (
     <View style={styles.wrapOuter} accessibilityRole="tablist">
-      <View style={[styles.track, compact ? styles.trackCompact : null]}>
+      <Animated.View style={[styles.track, { paddingVertical: size.trackPad }]}>
         <SegmentItem
           label="Alimentation"
           selected={mode === 'food'}
@@ -53,10 +77,7 @@ export const ShopModeSegment: React.FC<ShopModeSegmentProps> = ({ mode, onChange
           thumb={SHOP_MODE_IMG_FOOD}
           activeLabelColor={TEXT_FOOD}
           inactiveLabelColor={WHITE}
-          imgSize={img}
-          fontSize={fs}
-          lineHeight={lineH}
-          compact={compact}
+          size={size}
           hint="Voir les produits alimentaires"
         />
         <View style={{ width: 6 }} />
@@ -67,16 +88,25 @@ export const ShopModeSegment: React.FC<ShopModeSegmentProps> = ({ mode, onChange
           thumb={SHOP_MODE_IMG_COSMETIC}
           activeLabelColor={TEXT_COSMETIC_ACTIVE}
           inactiveLabelColor={WHITE}
-          imgSize={img}
-          fontSize={fs}
-          lineHeight={lineH}
-          compact={compact}
+          size={size}
           hint="Voir les cosmétiques"
         />
-      </View>
+      </Animated.View>
     </View>
   );
 };
+
+/** Tailles interpolées partagées par les deux onglets. */
+interface SegmentSizes {
+  img: CollapseProgress;
+  imgRadius: CollapseProgress;
+  fontSize: CollapseProgress;
+  lineHeight: CollapseProgress;
+  trackPad: CollapseProgress;
+  slotHeight: CollapseProgress;
+  cardHeight: CollapseProgress;
+  cardPad: CollapseProgress;
+}
 
 interface SegmentItemProps {
   label: string;
@@ -85,11 +115,8 @@ interface SegmentItemProps {
   thumb: string;
   activeLabelColor: string;
   inactiveLabelColor: string;
-  imgSize: number;
-  fontSize: number;
-  lineHeight: number;
+  size: SegmentSizes;
   hint: string;
-  compact?: boolean;
 }
 
 function SegmentItem({
@@ -99,16 +126,13 @@ function SegmentItem({
   thumb,
   activeLabelColor,
   inactiveLabelColor,
-  imgSize,
-  fontSize,
-  lineHeight,
+  size,
   hint,
-  compact = false,
 }: SegmentItemProps) {
   const labelColor = selected ? activeLabelColor : inactiveLabelColor;
 
   return (
-    <View style={[styles.slot, compact ? styles.slotCompact : null]}>
+    <Animated.View style={[styles.slot, { minHeight: size.slotHeight }]}>
       <Pressable
         onPress={onPress}
         accessibilityRole="tab"
@@ -119,33 +143,39 @@ function SegmentItem({
         hitSlop={4}
         style={({ pressed }) => [styles.pressable, { opacity: pressed ? 0.92 : 1 }]}
       >
-        <View style={[styles.card, compact ? styles.cardCompact : null, selected ? styles.cardSelected : styles.cardIdle]}>
-          <Image
+        <Animated.View
+          style={[
+            styles.card,
+            { minHeight: size.cardHeight, paddingVertical: size.cardPad },
+            selected ? styles.cardSelected : styles.cardIdle,
+          ]}
+        >
+          <Animated.Image
             source={{ uri: thumb }}
             resizeMode="cover"
             style={{
-              width: imgSize,
-              height: imgSize,
-              borderRadius: imgSize / 2,
+              width: size.img,
+              height: size.img,
+              borderRadius: size.imgRadius,
               backgroundColor: '#e2e8f0',
             }}
           />
-          <Text
+          <Animated.Text
             style={[
               styles.caption,
               {
                 color: labelColor,
-                fontSize,
-                lineHeight,
+                fontSize: size.fontSize,
+                lineHeight: size.lineHeight,
               },
             ]}
             numberOfLines={2}
           >
             {label}
-          </Text>
-        </View>
+          </Animated.Text>
+        </Animated.View>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -175,9 +205,6 @@ const styles = StyleSheet.create({
     minHeight: 40,
     justifyContent: 'center',
   },
-  slotCompact: { minHeight: 30 },
-  trackCompact: { paddingVertical: 2 },
-  cardCompact: { minHeight: 28, paddingVertical: 2 },
   pressable: {
     width: '100%',
     alignSelf: 'stretch',
