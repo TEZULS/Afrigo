@@ -26,7 +26,7 @@ import type { RootStackParamList } from '@/navigation/types';
 type Tab = 'regulations' | 'privacy';
 
 /**
- * « Paramètres › Contrat » : règlement intérieur et politique de
+ * « Paramètres › Règlement et confidentialité » : règlement intérieur et politique de
  * confidentialité, consultables à tout moment (textes de base44, version et
  * date d'entrée en vigueur).
  */
@@ -56,7 +56,7 @@ export const LegalScreen: React.FC = () => {
   const doc = tab === 'regulations' ? regulations : policy;
 
   return (
-    <Screen scroll header={<Header onBack={nav.goBack} title="Contrat" />}>
+    <Screen scroll header={<Header onBack={nav.goBack} title="Règlement et confidentialité" />}>
       <View style={[styles.tabs, { backgroundColor: colors.muted }]}>
         {(
           [

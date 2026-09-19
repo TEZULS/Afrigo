@@ -49,7 +49,7 @@ const ENTRIES: SettingsEntry[] = [
     route: 'MyRefunds',
   },
   {
-    name: 'Contrat',
+    name: 'Règlement et confidentialité',
     description: 'Règlement intérieur et politique de confidentialité',
     Icon: ScrollText,
     route: 'Legal',
