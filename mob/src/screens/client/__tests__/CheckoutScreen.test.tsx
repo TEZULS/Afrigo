@@ -340,14 +340,33 @@ describe('CheckoutScreen — TVA', () => {
   });
 });
 
-describe('CheckoutScreen — paiement à la livraison bloqué depuis base44', () => {
-  it('ne propose que la carte quand `cash_on_delivery_enabled` est faux', async () => {
+describe('CheckoutScreen — client privé de paiement à la livraison (base44)', () => {
+  const deliveryOption = () => screen.getByTestId('payment-delivery');
+
+  it('grise l’option et impose la carte quand `cash_on_delivery_disabled` est vrai', async () => {
     mockZones = [zone(true)];
-    mockAppSettings = { delivery_slots_enabled: false, cash_on_delivery_enabled: false };
+    mockUser = { ...baseUser, cash_on_delivery_disabled: true };
     renderWithProviders(wrap(<CheckoutScreen />));
     await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
     expect(screen.getByText('Carte bancaire')).toBeTruthy();
-    expect(screen.queryByText('Paiement à la livraison')).toBeNull();
-    mockAppSettings = { delivery_slots_enabled: false };
+    expect(
+      screen.getByText('Non disponible pour votre compte — paiement par carte obligatoire'),
+    ).toBeTruthy();
+    expect(deliveryOption().props.accessibilityState).toMatchObject({ disabled: true });
+
+    // Un appui ne la sélectionne pas : la commande part en paiement par carte.
+    fireEvent.press(screen.getByText('Paiement à la livraison'));
+    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
+    expect(lastCreatedOrder().payment_method).toBe('card');
+  });
+
+  it('laisse le choix quand le client n’est pas bloqué', async () => {
+    mockZones = [zone(true)];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    expect(screen.getByText('En espèces ou par carte auprès du livreur')).toBeTruthy();
+    expect(deliveryOption().props.accessibilityState).toMatchObject({ disabled: false });
   });
 });

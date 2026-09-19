@@ -41,7 +41,7 @@ import {
 } from '@/utils/checkoutMath';
 import { useToast } from '@/hooks/useToast';
 import { consumeOrderedLines } from '@/services/cartServerSync';
-import { useAppSettings, isCashOnDeliveryEnabled } from '@/hooks/useAppSettings';
+import { useAppSettings } from '@/hooks/useAppSettings';
 import type { AddressSuggestion } from '@/services/addressAutocomplete';
 import { DeliveryScheduleInfo } from '@/components/checkout/DeliveryScheduleInfo';
 import type { ScheduleDay } from '@/utils/deliverySchedule';
@@ -122,14 +122,22 @@ export const CheckoutScreen: React.FC = () => {
   const appSettings = useAppSettings();
   const deliverySlotsEnabled = Boolean(appSettings.data?.delivery_slots_enabled);
   /**
-   * L'admin peut couper le paiement à la livraison depuis base44
-   * (`AppSettings.cash_on_delivery_enabled = false`) : l'option disparaît et
-   * seul le paiement par carte (ou portefeuille) reste proposé.
+   * L'admin peut interdire le paiement à la livraison **client par client**
+   * depuis base44 (`User.cash_on_delivery_disabled`, écran « Paiement à la
+   * livraison »). Comme sur le web : l'option reste visible mais grisée et
+   * inactive, et la carte est sélectionnée d'office.
    */
-  const cashOnDeliveryEnabled = isCashOnDeliveryEnabled(appSettings.data);
+  const cashOnDeliveryBlocked = user?.cash_on_delivery_disabled === true;
   useEffect(() => {
-    if (!cashOnDeliveryEnabled) setPayment('card');
-  }, [cashOnDeliveryEnabled]);
+    if (cashOnDeliveryBlocked) setPayment('card');
+  }, [cashOnDeliveryBlocked]);
+  /*
+    Le drapeau vient du profil : on le relit à l'ouverture du paiement pour
+    qu'un blocage posé par l'admin s'applique sans redémarrer l'application.
+  */
+  useEffect(() => {
+    void refreshUser();
+  }, [refreshUser]);
 
   const [address, setAddress] = useState((user?.['address'] as string) ?? '');
   const [postalCode, setPostalCode] = useState((user?.['postal_code'] as string) ?? '');
@@ -892,37 +900,45 @@ export const CheckoutScreen: React.FC = () => {
                 },
               ] as const
             )
-              .filter((p) => p.id !== 'delivery' || cashOnDeliveryEnabled)
               .map((p) => {
-              const selected = payment === p.id;
+              const blocked = p.id === 'delivery' && cashOnDeliveryBlocked;
+              const selected = payment === p.id && !blocked;
+              const labelColor = blocked ? colors.mutedForeground : colors.foreground;
               return (
                 <Pressable
                   key={p.id}
+                  testID={`payment-${p.id}`}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected }}
+                  accessibilityState={{ selected, disabled: blocked }}
+                  disabled={blocked}
                   onPress={() => setPayment(p.id)}
                   style={[
                     styles.row,
+                    blocked ? styles.rowBlocked : null,
                     { borderColor: selected ? colors.brandOrange : 'transparent' },
                   ]}
                 >
-                  <p.Icon size={18} color={selected ? colors.brandOrange : colors.foreground} />
+                  <p.Icon size={18} color={selected ? colors.brandOrange : labelColor} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.foreground, fontWeight: '600' }}>{p.label}</Text>
+                    <Text style={{ color: labelColor, fontWeight: '600' }}>{p.label}</Text>
                     <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>
-                      {p.hint}
+                      {blocked
+                        ? 'Non disponible pour votre compte — paiement par carte obligatoire'
+                        : p.hint}
                     </Text>
                   </View>
-                  <View
-                    style={[
-                      styles.radio,
-                      { borderColor: selected ? colors.brandOrange : colors.border },
-                    ]}
-                  >
-                    {selected ? (
-                      <View style={[styles.radioDot, { backgroundColor: colors.brandOrange }]} />
-                    ) : null}
-                  </View>
+                  {blocked ? null : (
+                    <View
+                      style={[
+                        styles.radio,
+                        { borderColor: selected ? colors.brandOrange : colors.border },
+                      ]}
+                    >
+                      {selected ? (
+                        <View style={[styles.radioDot, { backgroundColor: colors.brandOrange }]} />
+                      ) : null}
+                    </View>
+                  )}
                 </Pressable>
               );
             })}
@@ -1031,6 +1047,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     marginBottom: 6,
   },
+  /** Moyen de paiement interdit à ce client : visible mais éteint (comme le web). */
+  rowBlocked: { opacity: 0.6 },
   radio: {
     width: 20,
     height: 20,
