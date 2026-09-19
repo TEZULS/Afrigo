@@ -29,6 +29,12 @@ export type AuthUser = {
   is_active?: boolean;
   customer_id?: string;
   tier?: 'normal' | 'argent' | 'or' | 'diamant';
+  /**
+   * Paiement à la livraison interdit pour ce client (coché par l'admin dans
+   * base44 → « Paiement à la livraison »). Seuls la carte et le portefeuille
+   * restent proposés au paiement.
+   */
+  cash_on_delivery_disabled?: boolean;
   privacy_policy_accepted_version?: number;
   [key: string]: unknown;
 };
