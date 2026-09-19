@@ -61,7 +61,7 @@ export const NotificationsScreen: React.FC = () => {
       return;
     }
     if (item.kind === 'promotion') {
-      nav.navigate('Promotions');
+      nav.navigate('ClientTabs', { screen: 'PromotionsTab' });
       return;
     }
     if (item.kind === 'return' && item.returnId) {

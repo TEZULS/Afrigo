@@ -181,7 +181,8 @@ export const MenuDrawer: React.FC = () => {
           {
             label: 'Mes offres',
             Icon: Tag,
-            onPress: () => navigateThen(() => nav.navigate('Promotions')),
+            onPress: () =>
+              navigateThen(() => nav.navigate('ClientTabs', { screen: 'PromotionsTab' })),
           } satisfies DrawerItem,
         ]
       : []),
