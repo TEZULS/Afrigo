@@ -13,7 +13,7 @@ export const PAGE_TO_ROUTE: Record<string, keyof RootStackParamList> = {
   Orders: 'Orders',
   OrderDetails: 'OrderDetails',
   ProductDetails: 'ProductDetails',
-  Promotions: 'Promotions',
+  Promotions: 'ClientTabs',
   AllReviews: 'AllReviews',
   Checkout: 'Checkout',
   Payment: 'Payment',

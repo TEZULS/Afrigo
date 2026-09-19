@@ -19,6 +19,12 @@ export type ClientTabParamList = {
    */
   ProfileTab: undefined;
   MenuTab: undefined;
+  /**
+   * Promotions et nouveautés vivent **dans** les onglets (sans pastille dans la
+   * barre) pour que la barre du bas reste visible sur ces pages.
+   */
+  PromotionsTab: undefined;
+  NewProductsTab: undefined;
 };
 
 type WebViewParams = { route: string; title?: string } | undefined;
@@ -47,9 +53,6 @@ export type RootStackParamList = {
   /** Recherche plein écran (suggestions + historique). */
   Search: undefined;
   ProductDetails: { id: string };
-  Promotions: undefined;
-  /** Nouveautés du catalogue (7 derniers jours), « Voir + » de l'accueil. */
-  NewProducts: undefined;
   /** Recettes d'Afrique : liste des pays, recettes d'un pays, détail. */
   Recipes: { country?: string; recipeId?: string } | undefined;
   /** `lineKeys` : lignes du panier cochées (`cartLineKey`) ; absent = tout le panier. */
@@ -75,7 +78,7 @@ export type RootStackParamList = {
   Notifications: undefined;
   Profile: undefined;
   ProfileEdit: undefined;
-  /** Page « Paramètres » : Paiement / Mes retours / Mes remboursements / Contrat. */
+  /** Page « Paramètres » : Paiement / Mes retours / Mes remboursements / Règlement et confidentialité. */
   Settings: undefined;
   /** Règlement intérieur + politique de confidentialité (consultation). */
   Legal: undefined;

@@ -11,6 +11,8 @@ import { CartScreen } from '@/screens/client/CartScreen';
 import { ProfileScreen } from '@/screens/client/ProfileScreen';
 import { MenuScreen } from '@/screens/client/MenuScreen';
 import { NotificationsScreen } from '@/screens/client/NotificationsScreen';
+import { PromotionsScreen } from '@/screens/client/PromotionsScreen';
+import { NewProductsScreen } from '@/screens/client/NewProductsScreen';
 import { useCart } from '@/stores/cart';
 import { useNotificationsFeed } from '@/hooks/useNotificationsFeed';
 import { useMenuDrawer, type MenuActiveRoute } from '@/stores/menuDrawer';
@@ -205,6 +207,22 @@ export const ClientTabs: React.FC = () => {
           ),
         }}
       />
+      {/*
+        Promotions / Nouveautés : écrans d'onglet masqués dans la barre. Y être
+        empilés (et non au-dessus des onglets) garde la barre du bas visible,
+        comme le demande le parcours « Voir plus » de l'accueil.
+      */}
+      <Tab.Screen
+        name="PromotionsTab"
+        component={PromotionsScreen}
+        options={{ title: 'Promotions', tabBarItemStyle: { display: 'none' } }}
+      />
+      <Tab.Screen
+        name="NewProductsTab"
+        component={NewProductsScreen}
+        options={{ title: 'Nouveaux produits', tabBarItemStyle: { display: 'none' } }}
+      />
+
       <Tab.Screen
         name="MenuTab"
         component={MenuScreen}

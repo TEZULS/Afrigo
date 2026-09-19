@@ -22,6 +22,8 @@ export const linking: LinkingOptions<RootStackParamList> = {
           NotificationsTab: 'notifications',
           MenuTab: 'menu',
           ProfileTab: 'profil',
+          PromotionsTab: 'promotions',
+          NewProductsTab: 'nouveautes',
         },
       },
       Search: 'recherche',
@@ -32,8 +34,6 @@ export const linking: LinkingOptions<RootStackParamList> = {
       // ces écrans empilés doivent donc avoir leur propre chemin (patterns uniques).
       Orders: 'mes-commandes',
       OrderDetails: 'commande/:id',
-      Promotions: 'promotions',
-      NewProducts: 'nouveautes',
       Recipes: 'recettes',
       AllReviews: 'avis/:productId',
       HabitualProducts: 'mes-habitudes',
