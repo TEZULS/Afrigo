@@ -87,11 +87,11 @@ Valeurs extraites de `mob/app.json` et `mob/eas.json` au moment de la remise.
 | Nom affiché                          | `AfriGo`                                     |
 | Slug Expo                            | `afrigo`                                     |
 | URL scheme                           | `afrigo`                                     |
-| Version                              | `1.0.21`                                     |
+| Version                              | `1.0.23`                                     |
 | Bundle ID iOS                        | `app.afrigo.mobile`                          |
-| Build number iOS                     | `34` (auto-incrémenté sur `production`)      |
+| Build number iOS                     | `36` (auto-incrémenté sur `production`)      |
 | Package Android                      | `app.afrigo.mobile`                          |
-| versionCode Android                  | `19` (auto-incrémenté sur `production`)      |
+| versionCode Android                  | `21` (auto-incrémenté sur `production`)      |
 | Merchant ID (Apple Pay)              | `merchant.app.afrigo.mobile`                 |
 | Associated Domain                    | `applinks:afrigo.app`                        |
 | EAS Project ID                       | `501b64d7-fd58-449d-8a1e-046a2d43e7d1`       |
