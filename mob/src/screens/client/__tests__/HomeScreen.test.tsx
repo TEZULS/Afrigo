@@ -5,6 +5,7 @@ import { renderWithProviders, fireEvent, screen, waitFor, act } from '@/__tests_
 import { useMenuDrawer } from '@/stores/menuDrawer';
 import { useHomeSearch } from '@/stores/homeSearch';
 import type { ProductDTO } from '@/components/products/ProductCard';
+import { HEADER_COLLAPSE_DISTANCE } from '@/utils/headerCollapse';
 
 const mockNavigate = jest.fn();
 
@@ -221,7 +222,7 @@ describe('HomeScreen — sections Promotions / Nouveaux produits', () => {
     expect(screen.getAllByText('Promo trois').length).toBeGreaterThan(0);
     expect(screen.queryByText('Promo un')).toBeNull();
     fireEvent.press(screen.getByTestId('home-see-more-Promotions'));
-    expect(mockNavigate).toHaveBeenCalledWith('Promotions');
+    expect(mockNavigate).toHaveBeenCalledWith('ClientTabs', { screen: 'PromotionsTab' });
     expect(screen.getByText('Nos produits')).toBeTruthy();
   });
 
@@ -231,7 +232,7 @@ describe('HomeScreen — sections Promotions / Nouveaux produits', () => {
     await waitFor(() => expect(screen.getByText('✨ Nouveaux produits')).toBeTruthy());
     expect(screen.queryByText('🏷️ Promotions')).toBeNull();
     fireEvent.press(screen.getByTestId('home-see-more-Nouveaux produits'));
-    expect(mockNavigate).toHaveBeenCalledWith('NewProducts');
+    expect(mockNavigate).toHaveBeenCalledWith('ClientTabs', { screen: 'NewProductsTab' });
   });
 
   it('sans promotion ni nouveauté : pas de section, catalogue directement', async () => {
@@ -258,13 +259,15 @@ describe('HomeScreen — en-tête épinglé et réduit au défilement', () => {
     useHomeSearch.setState({ query: '', queryToken: 0 });
   });
 
+  const flat = (style: unknown) =>
+    Object.assign({}, ...([] as object[]).concat(style as object[]).flat(Infinity));
+
   it('rayon et catégories vivent dans l’en-tête de section (épinglé), et tout se réduit en défilant', async () => {
     renderWithProviders(wrap(<HomeScreen />));
     await waitFor(() => expect(screen.getByLabelText('Cosmétiques')).toBeTruthy());
     const list = screen.UNSAFE_getByType(SectionList);
     expect(list.props.stickySectionHeadersEnabled).toBe(true);
     const brand = () => screen.getByText('AfriGo');
-    const flat = (style: unknown) => Object.assign({}, ...([] as object[]).concat(style as object[]).flat(Infinity));
     expect(flat(brand().props.style).fontSize).toBeGreaterThan(20);
 
     fireEvent.scroll(list, scrollEvent(120));
@@ -275,5 +278,30 @@ describe('HomeScreen — en-tête épinglé et réduit au défilement', () => {
 
     fireEvent.scroll(list, scrollEvent(0));
     await waitFor(() => expect(flat(brand().props.style).fontSize).toBeGreaterThan(20));
+  });
+
+  it('se réduit progressivement : à mi-parcours, les tailles sont intermédiaires', async () => {
+    renderWithProviders(wrap(<HomeScreen />));
+    await waitFor(() => expect(screen.getByLabelText('Cosmétiques')).toBeTruthy());
+    const list = screen.UNSAFE_getByType(SectionList);
+    // L'en-tête suit le doigt : un événement de défilement tous les 16 ms.
+    expect(list.props.scrollEventThrottle).toBe(16);
+    const brand = () => screen.getByText('AfriGo');
+    /** Pastille « Tous » : son emoji rétrécit avec l'en-tête (26 → 18). */
+    const pastille = () => screen.getByText('🛒');
+    const fullBrand = flat(brand().props.style).fontSize as number;
+    const fullPastille = flat(pastille().props.style).fontSize as number;
+
+    // Mi-parcours du repli (HEADER_COLLAPSE_DISTANCE / 2) : ni la taille
+    // normale, ni la taille réduite — d'où l'impression de fluidité.
+    fireEvent.scroll(list, scrollEvent(HEADER_COLLAPSE_DISTANCE / 2));
+    await waitFor(() => expect(flat(brand().props.style).fontSize).toBeLessThan(fullBrand));
+    expect(flat(brand().props.style).fontSize).toBeGreaterThan(20);
+    const midPastille = flat(pastille().props.style).fontSize as number;
+    expect(midPastille).toBeLessThan(fullPastille);
+    expect(midPastille).toBeGreaterThan(18);
+
+    fireEvent.scroll(list, scrollEvent(HEADER_COLLAPSE_DISTANCE));
+    await waitFor(() => expect(flat(pastille().props.style).fontSize).toBe(18));
   });
 });

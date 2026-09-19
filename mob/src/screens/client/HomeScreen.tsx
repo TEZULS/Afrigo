@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import {
+  Animated,
   View,
   Text,
   StyleSheet,
@@ -36,14 +37,12 @@ import { palette } from '@/theme/tokens';
 import type { RootStackParamList } from '@/navigation/types';
 import { sellingPrice } from '@/utils/productPricing';
 import { selectNewProducts } from '@/utils/newProducts';
+import { headerCollapseProgress } from '@/utils/headerCollapse';
 
 const H_PAD = 16;
 const GRID_GAP = 12;
 /** Nombre de produits montrés dans les sections « Promotions » / « Nouveaux produits ». */
 const HOME_TEASER_SIZE = 2;
-/** Défilement (px) à partir duquel l'en-tête passe en version réduite, et en dessous duquel il se déplie. */
-const COMPACT_HEADER_ON = 48;
-const COMPACT_HEADER_OFF = 12;
 /** Défilement (px) au-delà duquel la flèche « retour en haut » apparaît. */
 const SCROLL_TOP_THRESHOLD = 480;
 
@@ -69,18 +68,42 @@ export const HomeScreen: React.FC = () => {
    */
   const [showScrollTop, setShowScrollTop] = useState(false);
   /**
-   * En-tête réduit : dès que le catalogue défile, le bandeau AfriGo / Bonjour,
-   * le sélecteur de rayon et les catégories restent épinglés en haut mais
-   * prennent moins de place. Hystérésis pour éviter le clignotement autour du
-   * seuil.
+   * En-tête réduit : le bandeau AfriGo / Bonjour, le sélecteur de rayon et les
+   * catégories restent épinglés en haut pendant le défilement, mais rétrécissent
+   * **progressivement** — chaque taille suit le défilement au pixel près au lieu
+   * de basculer d'un coup au franchissement d'un seuil.
    */
-  const [compactHeader, setCompactHeader] = useState(false);
-  const onListScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = e.nativeEvent.contentOffset.y;
-    const past = y > SCROLL_TOP_THRESHOLD;
-    setShowScrollTop((prev) => (prev === past ? prev : past));
-    setCompactHeader((prev) => (prev ? y > COMPACT_HEADER_OFF : y > COMPACT_HEADER_ON));
-  }, []);
+  const headerProgress = useRef(new Animated.Value(0)).current;
+  const hdr = useMemo(() => {
+    const to = (from: number, toValue: number) =>
+      headerProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [from, toValue],
+        extrapolate: 'clamp',
+      });
+    return {
+      paddingTop: to(4, 0),
+      paddingBottom: to(12, 6),
+      brand: to(28, 20),
+      greeting: to(16, 13.5),
+      greetingPadV: to(6, 2),
+      menuSize: to(40, 34),
+      menuRadius: to(12, 10),
+      shopModeTop: to(GRID_GAP, 6),
+      shopModeBottom: to(6, 2),
+      categoryTop: to(8, 4),
+      categoryBottom: to(4, 2),
+    };
+  }, [headerProgress]);
+  const onListScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = e.nativeEvent.contentOffset.y;
+      const past = y > SCROLL_TOP_THRESHOLD;
+      setShowScrollTop((prev) => (prev === past ? prev : past));
+      headerProgress.setValue(headerCollapseProgress(y));
+    },
+    [headerProgress],
+  );
 
   /**
    * Remonte tout en haut de la liste produits (logo « AfriGo » et flèche
@@ -260,7 +283,10 @@ export const HomeScreen: React.FC = () => {
         kind: 'heading',
         title: 'Promotions',
         emoji: '🏷️',
-        more: promoProducts.length > HOME_TEASER_SIZE ? () => nav.navigate('Promotions') : undefined,
+        more:
+          promoProducts.length > HOME_TEASER_SIZE
+            ? () => nav.navigate('ClientTabs', { screen: 'PromotionsTab' })
+            : undefined,
       });
       data.push({ kind: 'pair', pair: promoProducts.slice(0, HOME_TEASER_SIZE) });
     }
@@ -269,7 +295,10 @@ export const HomeScreen: React.FC = () => {
         kind: 'heading',
         title: 'Nouveaux produits',
         emoji: '✨',
-        more: newProducts.length > HOME_TEASER_SIZE ? () => nav.navigate('NewProducts') : undefined,
+        more:
+          newProducts.length > HOME_TEASER_SIZE
+            ? () => nav.navigate('ClientTabs', { screen: 'NewProductsTab' })
+            : undefined,
       });
       data.push({ kind: 'pair', pair: newProducts.slice(0, HOME_TEASER_SIZE) });
     }
@@ -286,6 +315,16 @@ export const HomeScreen: React.FC = () => {
       : 'Modifiez vos filtres ou votre recherche.';
 
   /**
+   * Hauteurs de l'en-tête épinglé **replié** (le seul état où la flèche est
+   * visible : elle n'apparaît qu'après un long défilement) : rayon ≈ 38 px,
+   * barre de catégories ≈ 88 px. La flèche se pose juste en dessous.
+   */
+  const scrollTopOffset = useMemo(
+    () => (hasCosmetiques ? 38 : 0) + (availableCategories.length > 1 ? 88 : 0) + 10,
+    [hasCosmetiques, availableCategories.length],
+  );
+
+  /**
    * Filtres circulaires (Tous / Fruits…) — dans l'en-tête épinglé de la
    * section, sous le sélecteur de rayon : restent visibles en défilant
    * (version réduite dès que la liste bouge).
@@ -298,11 +337,14 @@ export const HomeScreen: React.FC = () => {
     */
     if (availableCategories.length === 0) return null;
     return (
-      <View
+      <Animated.View
         style={[
           styles.scrollCategoryBar,
-          compactHeader ? styles.scrollCategoryBarCompact : null,
-          { backgroundColor: colors.background },
+          {
+            paddingTop: hdr.categoryTop,
+            paddingBottom: hdr.categoryBottom,
+            backgroundColor: colors.background,
+          },
         ]}
       >
         <CategoryFilter
@@ -311,11 +353,11 @@ export const HomeScreen: React.FC = () => {
           availableCategories={availableCategories}
           shopMode={shopMode}
           horizontalInset={H_PAD}
-          compact={compactHeader}
+          progress={headerProgress}
         />
-      </View>
+      </Animated.View>
     );
-  }, [category, availableCategories, shopMode, compactHeader, colors.background]);
+  }, [category, availableCategories, shopMode, hdr, headerProgress, colors.background]);
 
   /**
    * En-tête de section : segment Alimentation/Cosmétiques (fond blanc,
@@ -333,15 +375,18 @@ export const HomeScreen: React.FC = () => {
         {/* ShopMode (Alimentation/Cosmétiques) sur fond blanc — masqué tant
             qu'aucun produit cosmétique n'existe au catalogue. */}
         {hasCosmetiques ? (
-          <View
+          <Animated.View
             style={[
               styles.stickyShopMode,
-              compactHeader ? styles.stickyShopModeCompact : null,
-              { backgroundColor: colors.background },
+              {
+                paddingTop: hdr.shopModeTop,
+                paddingBottom: hdr.shopModeBottom,
+                backgroundColor: colors.background,
+              },
             ]}
           >
-            <ShopModeSegment mode={shopMode} onChange={setShopMode} compact={compactHeader} />
-          </View>
+            <ShopModeSegment mode={shopMode} onChange={setShopMode} progress={headerProgress} />
+          </Animated.View>
         ) : null}
         {renderCategoryRow()}
         {search.trim() ? (
@@ -369,7 +414,8 @@ export const HomeScreen: React.FC = () => {
       shopMode,
       hasCosmetiques,
       search,
-      compactHeader,
+      hdr,
+      headerProgress,
       renderCategoryRow,
       colors.background,
       colors.surfaceMuted,
@@ -470,7 +516,8 @@ export const HomeScreen: React.FC = () => {
       refreshing={isRefetching}
       onRefresh={refetch}
       onScroll={onListScroll}
-      scrollEventThrottle={100}
+      /* 16 ms : l'en-tête suit le doigt image par image (repli progressif). */
+      scrollEventThrottle={16}
       showsVerticalScrollIndicator={false}
       initialNumToRender={8}
       windowSize={5}
@@ -496,11 +543,14 @@ export const HomeScreen: React.FC = () => {
   return (
     <Screen scroll={false} paddingHorizontal={0} bg={colors.surfaceMuted}>
       <View style={styles.shell}>
-        <View
+        <Animated.View
           style={[
             styles.header,
-            compactHeader ? styles.headerCompact : null,
-            { backgroundColor: colors.surfaceMuted },
+            {
+              paddingTop: hdr.paddingTop,
+              paddingBottom: hdr.paddingBottom,
+              backgroundColor: colors.surfaceMuted,
+            },
           ]}
         >
           <View style={styles.brandRow}>
@@ -512,9 +562,11 @@ export const HomeScreen: React.FC = () => {
               android_ripple={{ color: 'rgba(0,0,0,0.06)' }}
               style={styles.brandBtn}
             >
-              <Text style={[styles.brand, compactHeader ? styles.brandCompact : null, { color: colors.brandOrange }]}>
+              <Animated.Text
+                style={[styles.brand, { fontSize: hdr.brand, color: colors.brandOrange }]}
+              >
                 AfriGo
-              </Text>
+              </Animated.Text>
             </Pressable>
             {/*
               Bloc de droite : salutation (ou bouton de connexion) suivi du
@@ -524,18 +576,14 @@ export const HomeScreen: React.FC = () => {
             <View style={styles.headerActions}>
               {isAuthenticated && firstName ? (
                 /* Simple libellé : le profil s'ouvre depuis le menu ☰. */
-                <View style={styles.greeting}>
-                  <Text
-                    style={[
-                      styles.greetingText,
-                      compactHeader ? styles.greetingTextCompact : null,
-                      { color: colors.foreground },
-                    ]}
+                <Animated.View style={[styles.greeting, { paddingVertical: hdr.greetingPadV }]}>
+                  <Animated.Text
+                    style={[styles.greetingText, { fontSize: hdr.greeting, color: colors.foreground }]}
                     numberOfLines={1}
                   >
                     Bonjour, {firstName}
-                  </Text>
-                </View>
+                  </Animated.Text>
+                </Animated.View>
               ) : (
                 <Pressable
                   accessibilityRole="button"
@@ -553,13 +601,25 @@ export const HomeScreen: React.FC = () => {
                 onPress={() => openMenu('HomeTab')}
                 hitSlop={8}
                 android_ripple={{ color: 'rgba(0,0,0,0.06)', borderless: true, radius: 22 }}
-                style={[styles.menuBtn, compactHeader ? styles.menuBtnCompact : null, { borderColor: colors.border }]}
+                style={styles.menuBtnHit}
               >
-                <Menu size={20} color={colors.foreground} />
+                <Animated.View
+                  style={[
+                    styles.menuBtn,
+                    {
+                      width: hdr.menuSize,
+                      height: hdr.menuSize,
+                      borderRadius: hdr.menuRadius,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Menu size={20} color={colors.foreground} />
+                </Animated.View>
               </Pressable>
             </View>
           </View>
-        </View>
+        </Animated.View>
 
         <View style={[styles.listArea, { backgroundColor: colors.background }]}>
           {/*
@@ -583,10 +643,13 @@ export const HomeScreen: React.FC = () => {
                 testID="home-scroll-top"
                 onPress={scrollToTop}
                 hitSlop={12}
-                android_ripple={{ color: 'rgba(0,0,0,0.06)', borderless: true, radius: 26 }}
-                style={[styles.scrollTopBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                android_ripple={{ color: 'rgba(0,0,0,0.06)', borderless: true, radius: 22 }}
+                style={[
+                  styles.scrollTopBtn,
+                  { top: scrollTopOffset, backgroundColor: colors.card, borderColor: colors.border },
+                ]}
               >
-                <ArrowUp size={22} color={colors.foreground} strokeWidth={2.5} />
+                <ArrowUp size={18} color={colors.foreground} strokeWidth={2.5} />
               </Pressable>
             </View>
           ) : null}
@@ -607,10 +670,6 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     gap: 4,
   },
-  headerCompact: { paddingTop: 0, paddingBottom: 6 },
-  brandCompact: { fontSize: 20 },
-  greetingTextCompact: { fontSize: 14 },
-  menuBtnCompact: { width: 34, height: 34, borderRadius: 10 },
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -657,6 +716,7 @@ const styles = StyleSheet.create({
     gap: 8,
     flexShrink: 1,
   },
+  menuBtnHit: { flexShrink: 0 },
   menuBtn: {
     width: 40,
     height: 40,
@@ -719,8 +779,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(15,23,42,0.06)',
   },
-  stickyShopModeCompact: { paddingTop: 6, paddingBottom: 2 },
-  scrollCategoryBarCompact: { paddingTop: 4, paddingBottom: 2 },
   /** Catégories (Tous / Fruits & Légumes / …) — épinglées sous le rayon. */
   scrollCategoryBar: {
     paddingTop: 8,
@@ -762,14 +820,17 @@ const styles = StyleSheet.create({
     zIndex: 20,
     ...Platform.select({ android: { elevation: 6 }, default: {} }),
   },
-  /** Flèche flottante « retour en haut » — en haut à gauche, comme sur le web. */
+  /**
+   * Flèche flottante « retour en haut » — à gauche comme sur le web, mais posée
+   * sous l'en-tête épinglé (`top` calculé dans l'écran) pour ne pas recouvrir le
+   * sélecteur de rayon ni les pastilles de catégories.
+   */
   scrollTopBtn: {
     position: 'absolute',
-    top: 12,
     left: H_PAD,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
