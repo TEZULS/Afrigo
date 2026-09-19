@@ -96,7 +96,7 @@ describe('LegalConsentGate', () => {
     expect(mockRefreshUser).toHaveBeenCalled();
   });
 
-  it('ne redemande rien quand tout est déjà accepté, ni sans document actif', async () => {
+  it('ne redemande rien quand tout est déjà accepté, ni sans aucun document', async () => {
     mockUser = { email: 'salma@x.fr', privacy_policy_accepted_version: '1.0' };
     kv.set('legal_regulations_accepted:salma@x.fr', { regulationId: 'reg_2', regulationVersion: 2, acceptedAt: 'x' });
     const { unmount } = renderWithProviders(<LegalConsentGate />);
@@ -106,11 +106,22 @@ describe('LegalConsentGate', () => {
     unmount();
 
     mockUser = null;
-    mockRegulations = [{ ...REG, is_active: false }];
-    mockPolicies = [{ ...POLICY, is_active: false }];
+    mockRegulations = [];
+    mockPolicies = [];
     renderWithProviders(<LegalConsentGate />);
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByTestId('legal-gate-regulations')).toBeNull();
+  });
+
+  it('demande l’accord même si l’admin a laissé le document inactif', async () => {
+    // En production, les textes base44 restent sur `is_active: false` : l'accord
+    // doit malgré tout être demandé à tout le monde avant d'utiliser l'app.
+    mockRegulations = [{ ...REG, is_active: false }];
+    mockPolicies = [{ ...POLICY, is_active: false }];
+    renderWithProviders(<LegalConsentGate />);
+    await waitFor(() => expect(screen.getByTestId('legal-gate-regulations')).toBeTruthy());
+    await acceptCurrentStep();
+    await waitFor(() => expect(screen.getByTestId('legal-gate-privacy')).toBeTruthy());
   });
 
   it('une nouvelle version du règlement est redemandée', async () => {

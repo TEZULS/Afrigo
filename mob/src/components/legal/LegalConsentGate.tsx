@@ -14,8 +14,8 @@ import { hydrateKvFromDisk, kv } from '@/services/storage';
 import { useToast } from '@/hooks/useToast';
 import { userErrorMessage } from '@/lib/userErrors';
 import {
-  activePrivacyPolicy,
-  activeRegulations,
+  displayablePrivacyPolicy,
+  displayableRegulations,
   privacyAccepted,
   privacyAcceptanceKey,
   regulationsAccepted,
@@ -28,10 +28,10 @@ import {
 import { LegalContent } from './LegalContent';
 
 /**
- * Porte d'entrée légale, comme sur le site : au lancement (et à chaque
- * connexion), le règlement intérieur puis la politique de confidentialité
- * actifs doivent être acceptés avant d'utiliser l'app. Tant qu'un texte
- * n'est pas accepté, la fenêtre reste affichée (impossible à fermer autrement).
+ * Porte d'entrée légale : au lancement, **avant toute utilisation ou connexion**
+ * et pour tout le monde (invité comme client), le règlement intérieur puis la
+ * politique de confidentialité doivent être acceptés. Tant qu'un texte n'est
+ * pas accepté, la fenêtre reste affichée (impossible à fermer autrement).
  *
  * Nouvelle version publiée par l'admin → nouvelle demande d'accord.
  */
@@ -67,8 +67,19 @@ export const LegalConsentGate: React.FC = () => {
     queryFn: async () => ((await PrivacyPolicy().list?.()) ?? []) as PrivacyPolicyDoc[],
   });
 
-  const regulations = useMemo(() => activeRegulations(regulationsQuery.data ?? []), [regulationsQuery.data]);
-  const policy = useMemo(() => activePrivacyPolicy(privacyQuery.data ?? []), [privacyQuery.data]);
+  /*
+    Actif en priorité, sinon le texte le plus récent : tout le monde (invité
+    comme client connecté) doit donner son accord au lancement, même quand
+    l'admin a laissé le document sur `is_active: false`.
+  */
+  const regulations = useMemo(
+    () => displayableRegulations(regulationsQuery.data ?? []),
+    [regulationsQuery.data],
+  );
+  const policy = useMemo(
+    () => displayablePrivacyPolicy(privacyQuery.data ?? []),
+    [privacyQuery.data],
+  );
 
   const regulationsPending = useMemo(() => {
     if (!ready || !regulations) return false;
