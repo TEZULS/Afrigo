@@ -15,6 +15,7 @@ import { useCart } from '@/stores/cart';
 import type { RootStackParamList } from '@/navigation/types';
 import { sellingPrice } from '@/utils/productPricing';
 import { selectNewProducts } from '@/utils/newProducts';
+import { ScrollTopFab, useScrollTop } from '@/components/ui/ScrollTopFab';
 
 export const NewProductsScreen: React.FC = () => {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -34,6 +35,7 @@ export const NewProductsScreen: React.FC = () => {
   );
 
   const headerBack = nav.canGoBack() ? nav.goBack : undefined;
+  const { listRef, showScrollTop, onScroll, scrollToTop } = useScrollTop<ProductDTO>();
 
   return (
     <Screen scroll={false} paddingHorizontal={0}>
@@ -43,38 +45,48 @@ export const NewProductsScreen: React.FC = () => {
       ) : data.length === 0 ? (
         <EmptyState title="Aucun nouveau produit" description="Les nouveautés des 7 derniers jours apparaîtront ici." />
       ) : (
-        <FlatList
-          data={data}
-          numColumns={2}
-          keyExtractor={(p) => p.id}
-          contentContainerStyle={{ padding: 12, gap: 12 }}
-          columnWrapperStyle={{ gap: 12 }}
-          renderItem={({ item }) => (
-            <View style={styles.gridCell}>
-              <ProductCard
-                product={item}
-                cartQuantity={cartQty(item.id)}
-                onAddToCart={(p) => {
-                  const line = {
-                    productId: p.id,
-                    name: p.name,
-                    imageUrl: p.image_url,
-                    unitPrice: sellingPrice(p),
-                    category: p.category,
-                    unit: p.unit,
-                    vatRate: p.vat_rate ?? null,
-                  };
-                  cart.add(line);
-                  if (customerEmail) void remoteUpsertAfterAdd(customerEmail, { ...line, quantity: 1 });
-                }}
-                onRemoveFromCart={(p) => {
-                  cart.remove(p.id);
-                  if (customerEmail) void remoteDecrementAfterRemove(customerEmail, p.id);
-                }}
-              />
-            </View>
-          )}
-        />
+        <View style={styles.listArea}>
+          <FlatList
+            ref={listRef}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
+            data={data}
+            numColumns={2}
+            keyExtractor={(p) => p.id}
+            contentContainerStyle={{ padding: 12, gap: 12 }}
+            columnWrapperStyle={{ gap: 12 }}
+            renderItem={({ item }) => (
+              <View style={styles.gridCell}>
+                <ProductCard
+                  product={item}
+                  cartQuantity={cartQty(item.id)}
+                  onAddToCart={(p) => {
+                    const line = {
+                      productId: p.id,
+                      name: p.name,
+                      imageUrl: p.image_url,
+                      unitPrice: sellingPrice(p),
+                      category: p.category,
+                      unit: p.unit,
+                      vatRate: p.vat_rate ?? null,
+                    };
+                    cart.add(line);
+                    if (customerEmail) void remoteUpsertAfterAdd(customerEmail, { ...line, quantity: 1 });
+                  }}
+                  onRemoveFromCart={(p) => {
+                    cart.remove(p.id);
+                    if (customerEmail) void remoteDecrementAfterRemove(customerEmail, p.id);
+                  }}
+                />
+              </View>
+            )}
+          />
+          <ScrollTopFab
+            visible={showScrollTop}
+            onPress={scrollToTop}
+            testID="new-products-scroll-top"
+          />
+        </View>
       )}
     </Screen>
   );
@@ -83,4 +95,6 @@ export const NewProductsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   /** Cellule d'une grille 2 par 2 : sans `flex: 1`, la carte (largeur 100 %) prenait toute la ligne. */
   gridCell: { flex: 1, maxWidth: '50%' },
+  /** Porte la liste + la flèche flottante « retour en haut ». */
+  listArea: { flex: 1 },
 });
