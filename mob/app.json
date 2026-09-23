@@ -3,7 +3,7 @@
     "name": "AfriGo",
     "slug": "afrigo",
     "scheme": "afrigo",
-    "version": "1.0.23",
+    "version": "1.0.26",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.afrigo.mobile",
-      "buildNumber": "36",
+      "buildNumber": "39",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -37,7 +37,7 @@
     },
     "android": {
       "package": "app.afrigo.mobile",
-      "versionCode": 21,
+      "versionCode": 24,
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#FFFFFF"
