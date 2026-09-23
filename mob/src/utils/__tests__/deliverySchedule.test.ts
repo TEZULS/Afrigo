@@ -107,3 +107,23 @@ describe('formats de créneaux réels', () => {
     expect(isCurrentlyInSlot('Dans 2h', wednesday10h)).toBe(false);
   });
 });
+
+describe('format objet des créneaux (admin base44 depuis 2026-09)', () => {
+  /** Tel que stocké en production : `{ time_slot, max_orders }` au lieu d'une chaîne. */
+  const objectSchedule = [
+    { day: 'Mercredi', time_slots: [{ time_slot: '09h00-18h30', max_orders: 10 }] },
+    { day: 'Jeudi', time_slots: [{ time_slot: '09h00-18h30', max_orders: 100 }, '14h00-16h00'] },
+  ] as ScheduleDay[];
+
+  it('ne plante pas et lit la plage de l’objet', () => {
+    const next = getNextDelivery(objectSchedule, 0, wednesday10h);
+    expect(next?.isToday).toBe(true);
+    expect(next?.slots).toEqual(['09h00-18h30']);
+  });
+
+  it('mélange objets et chaînes, et bascule au lendemain le soir', () => {
+    const next = getNextDelivery(objectSchedule, 0, wednesday22h);
+    expect(next?.label).toBe('Demain');
+    expect(next?.slots).toEqual(['09h00-18h30', '14h00-16h00']);
+  });
+});

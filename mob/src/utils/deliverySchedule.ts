@@ -9,12 +9,29 @@
  * `now` est injectable pour rendre la logique testable.
  */
 
+/**
+ * Créneau d'une journée tel que l'admin le saisit depuis 2026-09 : la plage
+ * et le nombre maximum de commandes acceptées sur ce créneau.
+ */
+export interface ScheduleSlotObject {
+  time_slot?: string;
+  max_orders?: number;
+}
+
 export interface ScheduleDay {
   /** Nom du jour en français, tel que saisi dans AdminDeliveryZones (« Lundi »). */
   day: string;
-  /** Plages « HH:MM - HH:MM ». Vide = journée entière. */
-  time_slots?: string[];
+  /**
+   * Plages de la journée. Deux formats coexistent en production : l'ancien
+   * (chaîne « 09h00-18h30 ») et le nouveau (objet `{ time_slot, max_orders }`).
+   * Vide = journée entière.
+   */
+  time_slots?: (string | ScheduleSlotObject)[];
 }
+
+/** Plage d'un créneau, quel que soit son format (chaîne ou objet). */
+export const scheduleSlotLabel = (slot: string | ScheduleSlotObject | null | undefined): string =>
+  typeof slot === 'string' ? slot : (slot?.time_slot ?? '');
 
 export interface NextDelivery {
   /** « Aujourd'hui », « Demain », « Après-demain » ou le nom du jour. */
@@ -117,7 +134,7 @@ export const getNextDelivery = (
     if (!entry) continue;
 
     // Les plages vides (« » saisi par erreur en admin) valent « journée entière ».
-    const slots = (entry.time_slots ?? []).map((s) => s.trim()).filter(Boolean);
+    const slots = (entry.time_slots ?? []).map((s) => scheduleSlotLabel(s).trim()).filter(Boolean);
     const isToday = offset === 0;
 
     let availableSlots = slots;
