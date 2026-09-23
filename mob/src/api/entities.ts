@@ -75,6 +75,8 @@ export type Base44FunctionName =
   | 'archiveDailyCash'
   | 'archiveMonthlyRevenue'
   | 'processCardRefund'
+  /** Places prises par créneau d'un jour : `{ counts: { '09h00': 3 } }` (sélecteur de créneaux du site). */
+  | 'getDeliverySlotCounts'
   | 'testStripeConnection'
   | 'webhookStripe';
 
