@@ -4,16 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import {
-  MapPin,
-  CreditCard,
-  Banknote,
-  Truck,
-  ChevronRight,
-  Tag,
-  CheckCircle2,
-  FileText,
-} from 'lucide-react-native';
+import { MapPin, CreditCard, Banknote, Tag, CheckCircle2, FileText } from 'lucide-react-native';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Button } from '@/components/ui/Button';
@@ -44,8 +35,17 @@ import { consumeOrderedLines } from '@/services/cartServerSync';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import type { AddressSuggestion } from '@/services/addressAutocomplete';
 import { DeliveryScheduleInfo } from '@/components/checkout/DeliveryScheduleInfo';
+import { DeliverySlotSection, type SlotChoice } from '@/components/checkout/DeliverySlotSection';
 import type { ScheduleDay } from '@/utils/deliverySchedule';
 import { generateDeliveryCode } from '@/utils/deliveryCode';
+import {
+  formatSlotDay,
+  formatSlotRange,
+  hasZoneTimeSlots,
+  slotHasStarted,
+  splitSlotRange,
+  toYmd,
+} from '@/utils/deliverySlots';
 import { selectedVariantsPayload } from '@/utils/selectedVariants';
 import type { RootStackParamList } from '@/navigation/types';
 import { userErrorMessage } from '@/lib/userErrors';
@@ -54,6 +54,8 @@ import { useCartVatRates } from '@/hooks/useCartVatRates';
 
 /** Message d'erreur interne : zone de livraison désactivée au moment de la commande. */
 const ZONE_UNAVAILABLE = 'zone_unavailable';
+/** Message d'erreur interne : le créneau choisi a commencé avant la confirmation. */
+const SLOT_EXPIRED = 'slot_expired';
 
 /** Schéma Order aligné sur Checkout.jsx + entité Base44 */
 type ApiPaymentMethod = 'card' | 'delivery';
@@ -70,14 +72,6 @@ interface ZoneRow {
   min_days_before_delivery?: number;
 }
 
-interface SlotRow {
-  id: string;
-  date?: string;
-  time_slot?: string;
-  max_orders?: number;
-  current_orders?: number;
-  is_available?: boolean;
-}
 
 interface PromoCodeRow {
   id: string;
@@ -145,7 +139,10 @@ export const CheckoutScreen: React.FC = () => {
   const [phone, setPhone] = useState((user?.['phone'] as string) ?? '');
   /** Instructions de livraison (code d'entrée, étage…) → `Order.notes`, comme le web. */
   const [instructions, setInstructions] = useState('');
-  const [slot, setSlot] = useState<SlotRow | null>(null);
+  /** Créneau de livraison retenu (toujours le jour même). */
+  const [slotChoice, setSlotChoice] = useState<SlotChoice | null>(null);
+  /** Incrémenté pour relire l'heure et la liste des créneaux (créneau expiré). */
+  const [slotRefresh, setSlotRefresh] = useState(0);
   const [payment, setPayment] = useState<ApiPaymentMethod>('card');
 
   /**
@@ -204,22 +201,6 @@ export const CheckoutScreen: React.FC = () => {
     },
   });
 
-  const slotsQuery = useQuery<SlotRow[]>({
-    queryKey: ['delivery-slots'],
-    enabled: deliverySlotsEnabled && lines.length > 0,
-    queryFn: async () => {
-      const list =
-        ((await DeliverySlot().list?.('-date')) as SlotRow[] | undefined) ?? ([] as SlotRow[]);
-      const today = new Date().toISOString().split('T')[0]!;
-      return list.filter(
-        (s) =>
-          s.is_available !== false &&
-          (!s.date || s.date >= today) &&
-          (s.current_orders ?? 0) < (s.max_orders ?? 9999),
-      );
-    },
-  });
-
   /**
    * Correspondance automatique zone / code postal — comme Checkout.jsx.
    * Dérivée (et non stockée) : si l'admin désactive la zone pendant que
@@ -235,6 +216,15 @@ export const CheckoutScreen: React.FC = () => {
   /** Zone désactivée par l'admin : les clients de cette zone ne peuvent plus commander. */
   const zoneDisabled = matchedZone != null && matchedZone.is_active === false;
   const zone = zoneDisabled ? null : matchedZone;
+
+  /**
+   * Choix du créneau, dans le même ordre que le site :
+   * - la zone a des horaires → jour + créneau tirés de `delivery_schedule` ;
+   * - sinon, créneaux activés par l'admin → table `DeliverySlot` ;
+   * - sinon → simple rappel « Prochaine livraison disponible ».
+   */
+  const slotMode: 'zone' | 'table' | 'none' =
+    zone && hasZoneTimeSlots(zone.delivery_schedule) ? 'zone' : deliverySlotsEnabled ? 'table' : 'none';
 
   /**
    * Synchronise les champs adresse/CP/ville/téléphone avec le profil utilisateur :
@@ -319,15 +309,14 @@ export const CheckoutScreen: React.FC = () => {
   const minOrderAmount = zone != null ? Number(zone.min_order_amount ?? 0) : 0;
   const meetsMinimum = subTotal >= minOrderAmount;
 
-  const slotsCount = slotsQuery.data?.length ?? 0;
-  /** Aligné sur Checkout.jsx : créneau requis si la fonctionnalité est activée côté admin. */
-  const slotsBlocked =
-    deliverySlotsEnabled && (slotsCount === 0 || slot == null);
+  /** Créneau requis dès que la zone (ou l'admin) en propose, comme sur le site. */
+  const slotsBlocked = slotMode !== 'none' && slotChoice == null;
 
-  const slotLabel = useMemo(() => {
-    if (!slot?.date && !slot?.time_slot) return '';
-    return [slot.date, slot.time_slot].filter(Boolean).join(' · ');
-  }, [slot]);
+  /** Rappel du créneau en bas de page : « Mercredi 23 Sept. · 11h00 - 12h00 ». */
+  const slotLabel =
+    slotMode !== 'none' && slotChoice
+      ? `${formatSlotDay(slotChoice.date)} · ${formatSlotRange(slotChoice.time_slot)}`
+      : '';
 
   const applyPromo = async () => {
     const code = promoInput.trim();
@@ -404,9 +393,18 @@ export const CheckoutScreen: React.FC = () => {
         (z) => z.postal_codes?.includes(postalCode.trim()) && z.is_active !== false,
       );
       if (!stillActive) throw new Error(ZONE_UNAVAILABLE);
-      if (slot?.id) {
-        await DeliverySlot().update?.(slot.id, {
-          current_orders: (slot.current_orders ?? 0) + 1,
+      // Le créneau a pu commencer (ou la journée changer) pendant la saisie.
+      const chosenSlot = slotMode !== 'none' ? slotChoice : null;
+      const orderedAt = new Date();
+      if (
+        chosenSlot &&
+        (chosenSlot.date !== toYmd(orderedAt) || slotHasStarted(chosenSlot.time_slot, orderedAt))
+      ) {
+        throw new Error(SLOT_EXPIRED);
+      }
+      if (chosenSlot?.tableRow) {
+        await DeliverySlot().update?.(chosenSlot.tableRow.id, {
+          current_orders: (chosenSlot.tableRow.current_orders ?? 0) + 1,
         });
       }
 
@@ -448,8 +446,14 @@ export const CheckoutScreen: React.FC = () => {
         delivery_postal_code: postalCode.trim(),
         delivery_city: city.trim() || '—',
         notes: notes || undefined,
-        estimated_delivery: slot?.date,
-        delivery_time: slot?.time_slot,
+        // Comme le site : le jour, l'heure de début seule, et le créneau complet.
+        ...(chosenSlot
+          ? {
+              estimated_delivery: chosenSlot.date,
+              delivery_time: splitSlotRange(chosenSlot.time_slot).start,
+              delivery_time_slot: chosenSlot.time_slot,
+            }
+          : {}),
         // Code à 4 chiffres que le client communiquera au livreur à la remise.
         delivery_code: generateDeliveryCode(),
       })) as { id: string };
@@ -513,6 +517,12 @@ export const CheckoutScreen: React.FC = () => {
       }
     },
     onError: (e: Error) => {
+      if (e.message === SLOT_EXPIRED) {
+        setSlotChoice(null);
+        setSlotRefresh((n) => n + 1);
+        toast.error('Créneau indisponible', 'Ce créneau vient de commencer : choisissez-en un autre.');
+        return;
+      }
       if (e.message === ZONE_UNAVAILABLE) {
         toast.error(
           'Livraison indisponible',
@@ -649,7 +659,7 @@ export const CheckoutScreen: React.FC = () => {
         </Text>
       ) : null}
 
-      {zone ? (
+      {zone && slotMode === 'none' ? (
         <DeliveryScheduleInfo
           schedule={zone.delivery_schedule}
           minDaysBeforeDelivery={zone.min_days_before_delivery}
@@ -671,42 +681,20 @@ export const CheckoutScreen: React.FC = () => {
         </Text>
       ) : null}
 
-      {deliverySlotsEnabled ? (
+      {slotMode !== 'none' ? (
         <>
-          <Text style={[styles.section, { color: colors.foreground }]}>Créneau</Text>
-          {slotsQuery.isLoading ? (
-            <Card padding={14} style={{ marginTop: 8 }}>
-              <Text style={{ color: colors.mutedForeground }}>Chargement des créneaux…</Text>
-            </Card>
-          ) : slotsCount === 0 ? (
-            <Card padding={14} style={{ marginTop: 8, borderColor: colors.border }}>
-              <Text style={{ color: colors.destructive, fontWeight: '600' }}>
-                Aucun créneau disponible pour le moment. Réessayez plus tard ou contactez le service
-                client.
-              </Text>
-            </Card>
-          ) : (
-            <Card padding={6} style={{ marginTop: 8 }}>
-              {(slotsQuery.data ?? []).map((s) => {
-                const selected = slot?.id === s.id;
-                const label = [s.date, s.time_slot].filter(Boolean).join(' · ');
-                return (
-                  <Pressable
-                    key={s.id}
-                    onPress={() => setSlot(s)}
-                    style={[
-                      styles.row,
-                      { borderColor: selected ? colors.brandOrange : 'transparent' },
-                    ]}
-                  >
-                    <Truck size={18} color={colors.foreground} />
-                    <Text style={{ flex: 1, color: colors.foreground }}>{label || s.id}</Text>
-                    <ChevronRight size={16} color={colors.mutedForeground} />
-                  </Pressable>
-                );
-              })}
-            </Card>
-          )}
+          <Text style={[styles.section, { color: colors.foreground }]}>
+            Créneau de livraison <Text style={{ color: colors.destructive }}>*</Text>
+          </Text>
+          <Card padding={12} style={{ marginTop: 8 }}>
+            <DeliverySlotSection
+              key={`${zone?.id ?? 'table'}-${slotRefresh}`}
+              mode={slotMode}
+              schedule={zone?.delivery_schedule}
+              value={slotChoice}
+              onChange={setSlotChoice}
+            />
+          </Card>
         </>
       ) : null}
 

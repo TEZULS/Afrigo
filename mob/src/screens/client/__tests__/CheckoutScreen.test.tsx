@@ -58,16 +58,23 @@ jest.mock('@/lib/wallet', () => ({
 
 /** Zone couvrant le client — son état actif/inactif varie selon le test. */
 let mockZones: Record<string, unknown>[] = [];
+let mockSlots: Record<string, unknown>[] = [];
+const mockSlotUpdate = jest.fn();
 const mockOrderCreate = jest.fn(async () => ({ id: 'ord_1' }));
+/** Places prises renvoyées par `getDeliverySlotCounts` (par heure de début). */
+let mockSlotCounts: Record<string, number> = {};
+const mockInvoke = jest.fn(async (name: string, _payload?: unknown) =>
+  name === 'getDeliverySlotCounts' ? { counts: mockSlotCounts } : {},
+);
 
 jest.mock('@/api/entities', () => ({
   DeliveryZone: () => ({ list: jest.fn(async () => mockZones) }),
-  DeliverySlot: () => ({ list: jest.fn(async () => []), update: jest.fn() }),
+  DeliverySlot: () => ({ list: jest.fn(async () => mockSlots), update: mockSlotUpdate }),
   Order: () => ({ create: mockOrderCreate }),
   DiscountCode: () => ({ filter: jest.fn(async () => []), update: jest.fn() }),
   DiscountCodeUsage: () => ({ filter: jest.fn(async () => []), create: jest.fn() }),
   WalletTransaction: () => ({ create: jest.fn() }),
-  invokeFunction: jest.fn(async () => ({})),
+  invokeFunction: (name: string, payload?: unknown) => mockInvoke(name, payload),
 }));
 
 import { CheckoutScreen } from '../CheckoutScreen';
@@ -100,6 +107,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockUser = { ...baseUser };
   mockCheckoutParams = undefined;
+  mockSlots = [];
+  mockSlotCounts = {};
   global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ features: [] }) });
   useCart.setState({
     lines: [{ productId: 'p1', name: 'Bissap', unitPrice: 6.99, quantity: 1 }],
@@ -368,5 +377,161 @@ describe('CheckoutScreen — client privé de paiement à la livraison (base44)'
     await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
     expect(screen.getByText('En espèces ou par carte auprès du livreur')).toBeTruthy();
     expect(deliveryOption().props.accessibilityState).toMatchObject({ disabled: false });
+  });
+});
+
+describe('CheckoutScreen — créneau du jour même', () => {
+  /** Horaires au format admin actuel (objets), saisis dans le désordre. */
+  const todayZone = {
+    ...zone(true),
+    id: 'z1',
+    name: 'Zone 1',
+    delivery_schedule: [
+      {
+        day: 'Mercredi',
+        time_slots: [
+          { time_slot: '09h00-10h00', max_orders: 10 },
+          { time_slot: '10h00-11h00', max_orders: 10 },
+          { time_slot: '11h00-12h00', max_orders: 10 },
+          { time_slot: '14h00-15h00', max_orders: 10 },
+        ],
+      },
+      { day: 'Jeudi', time_slots: [{ time_slot: '09h00-18h30', max_orders: 10 }] },
+    ],
+  };
+  /** Mercredi 23 septembre 2026, 10 h. */
+  const TEN_AM = new Date(2026, 8, 23, 10, 0);
+  const confirm = () => screen.getByRole('button', { name: 'Confirmer ma commande' });
+
+  beforeAll(() => {
+    // Seule la date est figée : les minuteurs restent réels.
+    jest.useFakeTimers({
+      now: TEN_AM,
+      doNotFake: [
+        'nextTick',
+        'setImmediate',
+        'clearImmediate',
+        'setInterval',
+        'clearInterval',
+        'setTimeout',
+        'clearTimeout',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'hrtime',
+        'performance',
+      ],
+    });
+  });
+  afterAll(() => jest.useRealTimers());
+
+  beforeEach(() => {
+    jest.setSystemTime(TEN_AM);
+    mockZones = [todayZone];
+    // Même activé, le réglage `DeliverySlot` ne sert pas quand la zone a des horaires.
+    mockAppSettings = { delivery_slots_enabled: true };
+  });
+  afterEach(() => {
+    mockAppSettings = { delivery_slots_enabled: false };
+  });
+
+  it('à 10:00, ne propose que les créneaux d’aujourd’hui pas encore commencés, sans places', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('11h00 - 12h00')).toBeTruthy());
+
+    expect(screen.getByTestId('slot-day-label')).toHaveTextContent("Aujourd'hui · Mercredi 23 Sept.");
+    expect(screen.getByText('14h00 - 15h00')).toBeTruthy();
+    // Commencés : plus proposés. Autres jours : pas de navigation.
+    expect(screen.queryByText('09h00 - 10h00')).toBeNull();
+    expect(screen.queryByText('10h00 - 11h00')).toBeNull();
+    expect(screen.queryByText('09h00 - 18h30')).toBeNull();
+    expect(screen.queryByTestId('slot-day-next')).toBeNull();
+    // Le nombre de places n'est plus affiché.
+    expect(screen.queryByText(/\/10/)).toBeNull();
+
+    // Premier créneau libre présélectionné.
+    await waitFor(() =>
+      expect(screen.getByTestId('slot-zone-2').props.accessibilityState?.selected).toBe(true),
+    );
+    expect(mockInvoke).toHaveBeenCalledWith('getDeliverySlotCounts', { date: '2026-09-23' });
+  });
+
+  it('enregistre le créneau choisi pour aujourd’hui sur la commande', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('slot-zone-3')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('slot-zone-3'));
+    await waitFor(() =>
+      expect(screen.getByTestId('slot-zone-3').props.accessibilityState?.selected).toBe(true),
+    );
+    await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
+    fireEvent.press(confirm());
+    await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
+
+    const order = lastCreatedOrder();
+    expect(order.estimated_delivery).toBe('2026-09-23');
+    expect(order.delivery_time).toBe('14h00');
+    expect(order.delivery_time_slot).toBe('14h00-15h00');
+    expect(mockSlotUpdate).not.toHaveBeenCalled();
+  });
+
+  it('un créneau complet n’est pas proposé', async () => {
+    mockSlotCounts = { '11h00': 10 };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('14h00 - 15h00')).toBeTruthy());
+    expect(screen.queryByText('11h00 - 12h00')).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId('slot-zone-3').props.accessibilityState?.selected).toBe(true),
+    );
+  });
+
+  it('plus aucun créneau aujourd’hui : message, et la commande reste bloquée', async () => {
+    jest.setSystemTime(new Date(2026, 8, 23, 20, 0));
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('slots-none-today')).toBeTruthy());
+    // Le jeudi n'est jamais proposé à la place.
+    expect(screen.queryByText('09h00 - 18h30')).toBeNull();
+    expect(confirm().props.accessibilityState?.disabled).toBe(true);
+  });
+
+  it('refuse un créneau qui a commencé pendant la saisie et en propose un autre', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() =>
+      expect(screen.getByTestId('slot-zone-2').props.accessibilityState?.selected).toBe(true),
+    );
+    await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
+
+    // Le client confirme à 11:00 : le créneau 11h00-12h00 vient de commencer.
+    jest.setSystemTime(new Date(2026, 8, 23, 11, 0));
+    fireEvent.press(confirm());
+
+    await waitFor(() =>
+      expect(screen.getByTestId('slot-zone-3').props.accessibilityState?.selected).toBe(true),
+    );
+    expect(screen.queryByText('11h00 - 12h00')).toBeNull();
+    expect(mockOrderCreate).not.toHaveBeenCalled();
+  });
+
+  it('sans horaires de zone, reprend les créneaux du jour de la table DeliverySlot', async () => {
+    mockZones = [zone(true)];
+    mockSlots = [
+      { id: 'started', date: '2026-09-23', time_slot: '09:00-09:45', max_orders: 5, current_orders: 0, is_available: true },
+      { id: 'noon', date: '2026-09-23', time_slot: '12:00-13:00', max_orders: 5, current_orders: 2, is_available: true },
+      { id: 'tomorrow', date: '2026-09-24', time_slot: '11:00-12:00', max_orders: 5, current_orders: 0, is_available: true },
+    ];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('12:00 - 13:00')).toBeTruthy());
+    expect(screen.queryByText('09:00 - 09:45')).toBeNull();
+    expect(screen.queryByText('11:00 - 12:00')).toBeNull();
+    expect(screen.queryByText('2/5')).toBeNull();
+
+    await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
+    fireEvent.press(confirm());
+    await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
+    expect(lastCreatedOrder().delivery_time).toBe('12:00');
+    expect(lastCreatedOrder().delivery_time_slot).toBe('12:00-13:00');
+    expect(mockSlotUpdate).toHaveBeenCalledWith('noon', { current_orders: 3 });
   });
 });
