@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { CalendarDays, Clock } from 'lucide-react-native';
@@ -8,16 +8,17 @@ import { DeliverySlot, invokeFunction } from '@/api/entities';
 import { useNow } from '@/hooks/useNow';
 import type { ScheduleDay } from '@/utils/deliverySchedule';
 import {
-  availableTableSlotsToday,
-  availableZoneSlotsToday,
-  formatDeliveryDay,
+  availableZoneSlotsOn,
+  formatRelativeDeliveryDay,
   formatSlotRange,
+  nextTableSlots,
   toYmd,
+  zoneCandidateDays,
   type DeliverySlotRow,
   type SlotOption,
 } from '@/utils/deliverySlots';
 
-/** Créneau retenu : toujours aujourd'hui (`date`), avec sa plage horaire. */
+/** Créneau retenu : jour (`2026-09-23`) et plage horaire. */
 export interface SlotChoice extends SlotOption {
   date: string;
 }
@@ -34,27 +35,46 @@ interface Props {
 const CLOCK_REFRESH_MS = 60_000;
 const NO_COUNTS: Record<string, number> = {};
 
+/** `2026-09-24` → minuit local de ce jour. */
+const fromYmd = (ymd: string): Date => {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+};
+
 /**
- * Choix du créneau de livraison **du jour même** : seuls les créneaux
- * d'aujourd'hui pas encore commencés (et pas complets) sont proposés, sans
- * afficher le nombre de places. Le premier créneau libre est présélectionné.
+ * Choix du créneau de livraison sur **un seul jour** : aujourd'hui tant qu'il
+ * reste un créneau pas encore commencé, sinon automatiquement le prochain jour
+ * livrable (« Demain · Jeudi 24 Sept. »). Le nombre de places n'est pas
+ * affiché ; un créneau complet n'est pas proposé. Le premier créneau libre est
+ * présélectionné.
  */
 export const DeliverySlotSection: React.FC<Props> = ({ mode, schedule, value, onChange }) => {
   const { colors } = useTheme();
   const now = useNow(CLOCK_REFRESH_MS);
-  const today = toYmd(now);
 
-  /** Places prises aujourd'hui par heure de début (« 11h00 » → 3). */
+  // --- Horaires de zone : jours candidats, un jour complet est sauté. ---
+  const candidates = useMemo(
+    () => (mode === 'zone' ? zoneCandidateDays(schedule, now) : []),
+    [mode, schedule, now],
+  );
+  const candidatesKey = candidates.map(toYmd).join(',');
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  // Liste des jours modifiée (heure qui tourne, autre zone) : on repart du premier.
+  useEffect(() => setCandidateIndex(0), [candidatesKey]);
+  const zoneDay = candidates[candidateIndex] ?? null;
+  const zoneYmd = zoneDay ? toYmd(zoneDay) : '';
+
+  /** Places prises ce jour-là par heure de début (« 11h00 » → 3). */
   const countsQuery = useQuery<Record<string, number>>({
-    queryKey: ['deliverySlotCounts', today],
-    enabled: mode === 'zone',
+    queryKey: ['deliverySlotCounts', zoneYmd],
+    enabled: mode === 'zone' && Boolean(zoneYmd),
     staleTime: 0,
     refetchOnMount: 'always',
     queryFn: async () => {
       try {
         const res = await invokeFunction<{ counts?: Record<string, number> }>(
           'getDeliverySlotCounts',
-          { date: today },
+          { date: zoneYmd },
         );
         return res?.counts ?? {};
       } catch {
@@ -64,6 +84,7 @@ export const DeliverySlotSection: React.FC<Props> = ({ mode, schedule, value, on
     },
   });
 
+  // --- Table DeliverySlot : premier jour qui a un créneau proposable. ---
   const tableQuery = useQuery<DeliverySlotRow[]>({
     queryKey: ['delivery-slots'],
     enabled: mode === 'table',
@@ -72,31 +93,39 @@ export const DeliverySlotSection: React.FC<Props> = ({ mode, schedule, value, on
       ((await DeliverySlot().list?.('-date')) as DeliverySlotRow[] | undefined) ?? [],
   });
 
-  const loading = mode === 'zone' ? countsQuery.isLoading : tableQuery.isLoading;
   const counts = countsQuery.data ?? NO_COUNTS;
-  const options = useMemo(
-    () =>
-      mode === 'zone'
-        ? availableZoneSlotsToday(schedule, counts, now)
-        : availableTableSlotsToday(tableQuery.data ?? [], now),
-    [mode, schedule, counts, tableQuery.data, now],
-  );
+  const { date, options } = useMemo((): { date: string; options: SlotOption[] } => {
+    if (mode === 'table') return nextTableSlots(tableQuery.data ?? [], now) ?? { date: '', options: [] };
+    if (!zoneDay) return { date: '', options: [] };
+    return { date: zoneYmd, options: availableZoneSlotsOn(schedule, zoneDay, counts, now) };
+  }, [mode, tableQuery.data, now, zoneDay, zoneYmd, schedule, counts]);
+
+  const loading =
+    mode === 'zone' ? Boolean(zoneYmd) && countsQuery.isLoading : tableQuery.isLoading;
+
+  // Jour complet (toutes les places prises) : on passe au jour livrable suivant.
+  useEffect(() => {
+    if (mode !== 'zone' || loading || !zoneDay || options.length > 0) return;
+    if (candidateIndex < candidates.length - 1) setCandidateIndex(candidateIndex + 1);
+  }, [mode, loading, zoneDay, options.length, candidateIndex, candidates.length]);
 
   /*
-    Le créneau retenu doit rester proposable (aujourd'hui, pas commencé, pas
-    complet) : sinon on présélectionne le premier créneau libre, ou plus rien.
+    Le créneau retenu doit rester proposable : sinon on présélectionne le
+    premier créneau libre du jour affiché, ou plus rien.
   */
   useEffect(() => {
     if (loading) return;
     const stillOffered =
-      value?.date === today &&
+      value?.date === date &&
       options.some((o) => o.key === value.key && o.time_slot === value.time_slot);
     if (stillOffered) return;
     const first = options[0];
-    if (first) onChange({ ...first, date: today });
+    if (first && date) onChange({ ...first, date });
     else if (value) onChange(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options, today, loading]);
+  }, [options, date, loading]);
+
+  const hasOptions = Boolean(date) && options.length > 0;
 
   return (
     <View>
@@ -106,7 +135,7 @@ export const DeliverySlotSection: React.FC<Props> = ({ mode, schedule, value, on
       </View>
       <View style={styles.dayBox}>
         <Text testID="slot-day-label" style={styles.dayLabel}>
-          Aujourd&apos;hui · {formatDeliveryDay(now)}
+          {hasOptions ? formatRelativeDeliveryDay(fromYmd(date), now) : '—'}
         </Text>
       </View>
 
@@ -118,16 +147,16 @@ export const DeliverySlotSection: React.FC<Props> = ({ mode, schedule, value, on
         <Text style={[styles.loading, { color: colors.mutedForeground }]}>
           Chargement des créneaux…
         </Text>
-      ) : options.length === 0 ? (
-        <View style={[styles.notice, { marginTop: 8 }]} testID="slots-none-today">
+      ) : !hasOptions ? (
+        <View style={[styles.notice, { marginTop: 8 }]} testID="slots-none">
           <Text style={styles.noticeText}>
-            ⚠️ Plus aucun créneau de livraison disponible aujourd&apos;hui. Réessayez demain.
+            ⚠️ Aucun créneau de livraison disponible pour le moment. Réessayez plus tard.
           </Text>
         </View>
       ) : (
         <View style={styles.grid}>
           {options.map((o) => {
-            const selected = value?.date === today && value.key === o.key;
+            const selected = value?.date === date && value.key === o.key;
             const range = formatSlotRange(o.time_slot);
             return (
               <Pressable
@@ -136,7 +165,7 @@ export const DeliverySlotSection: React.FC<Props> = ({ mode, schedule, value, on
                 accessibilityState={{ selected }}
                 accessibilityLabel={`Créneau ${range}`}
                 testID={`slot-${o.key}`}
-                onPress={() => onChange({ ...o, date: today })}
+                onPress={() => onChange({ ...o, date })}
                 style={[
                   styles.card,
                   selected
