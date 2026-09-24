@@ -393,12 +393,14 @@ export const CheckoutScreen: React.FC = () => {
         (z) => z.postal_codes?.includes(postalCode.trim()) && z.is_active !== false,
       );
       if (!stillActive) throw new Error(ZONE_UNAVAILABLE);
-      // Le créneau a pu commencer (ou la journée changer) pendant la saisie.
+      // Le créneau a pu commencer (ou son jour passer) pendant la saisie.
       const chosenSlot = slotMode !== 'none' ? slotChoice : null;
       const orderedAt = new Date();
+      const orderDay = toYmd(orderedAt);
       if (
         chosenSlot &&
-        (chosenSlot.date !== toYmd(orderedAt) || slotHasStarted(chosenSlot.time_slot, orderedAt))
+        (chosenSlot.date < orderDay ||
+          (chosenSlot.date === orderDay && slotHasStarted(chosenSlot.time_slot, orderedAt)))
       ) {
         throw new Error(SLOT_EXPIRED);
       }

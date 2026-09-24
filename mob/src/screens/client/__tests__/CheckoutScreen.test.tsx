@@ -63,8 +63,12 @@ const mockSlotUpdate = jest.fn();
 const mockOrderCreate = jest.fn(async () => ({ id: 'ord_1' }));
 /** Places prises renvoyées par `getDeliverySlotCounts` (par heure de début). */
 let mockSlotCounts: Record<string, number> = {};
-const mockInvoke = jest.fn(async (name: string, _payload?: unknown) =>
-  name === 'getDeliverySlotCounts' ? { counts: mockSlotCounts } : {},
+/** Places prises pour une date précise (sinon `mockSlotCounts`). */
+let mockSlotCountsByDate: Record<string, Record<string, number>> = {};
+const mockInvoke = jest.fn(async (name: string, payload?: unknown) =>
+  name === 'getDeliverySlotCounts'
+    ? { counts: mockSlotCountsByDate[(payload as { date?: string })?.date ?? ''] ?? mockSlotCounts }
+    : {},
 );
 
 jest.mock('@/api/entities', () => ({
@@ -109,6 +113,7 @@ beforeEach(() => {
   mockCheckoutParams = undefined;
   mockSlots = [];
   mockSlotCounts = {};
+  mockSlotCountsByDate = {};
   global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ features: [] }) });
   useCart.setState({
     lines: [{ productId: 'p1', name: 'Bissap', unitPrice: 6.99, quantity: 1 }],
@@ -380,7 +385,7 @@ describe('CheckoutScreen — client privé de paiement à la livraison (base44)'
   });
 });
 
-describe('CheckoutScreen — créneau du jour même', () => {
+describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livrable', () => {
   /** Horaires au format admin actuel (objets), saisis dans le désordre. */
   const todayZone = {
     ...zone(true),
@@ -487,12 +492,46 @@ describe('CheckoutScreen — créneau du jour même', () => {
     );
   });
 
-  it('plus aucun créneau aujourd’hui : message, et la commande reste bloquée', async () => {
+  it('plus aucun créneau aujourd’hui : propose automatiquement ceux de demain', async () => {
     jest.setSystemTime(new Date(2026, 8, 23, 20, 0));
     renderWithProviders(wrap(<CheckoutScreen />));
-    await waitFor(() => expect(screen.getByTestId('slots-none-today')).toBeTruthy());
-    // Le jeudi n'est jamais proposé à la place.
-    expect(screen.queryByText('09h00 - 18h30')).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId('slot-day-label')).toHaveTextContent('Demain · Jeudi 24 Sept.'),
+    );
+    // Un jour futur : même le créneau du matin est proposé.
+    expect(screen.getByText('09h00 - 18h30')).toBeTruthy();
+    expect(screen.queryByText('14h00 - 15h00')).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId('slot-zone-0').props.accessibilityState?.selected).toBe(true),
+    );
+
+    await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
+    fireEvent.press(confirm());
+    await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
+    expect(lastCreatedOrder().estimated_delivery).toBe('2026-09-24');
+    expect(lastCreatedOrder().delivery_time_slot).toBe('09h00-18h30');
+  });
+
+  it('jour complet : passe au jour livrable suivant', async () => {
+    jest.setSystemTime(new Date(2026, 8, 23, 20, 0));
+    // Jeudi 24 complet → mercredi 30 (jour livrable suivant de la zone).
+    mockSlotCountsByDate = { '2026-09-24': { '09h00': 10 } };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() =>
+      expect(screen.getByTestId('slot-day-label')).toHaveTextContent('Mercredi 30 Sept.'),
+    );
+    expect(screen.getByText('09h00 - 10h00')).toBeTruthy();
+    expect(mockInvoke).toHaveBeenCalledWith('getDeliverySlotCounts', { date: '2026-09-30' });
+  });
+
+  it('aucun jour livrable : message, et la commande reste bloquée', async () => {
+    mockZones = [
+      { ...todayZone, delivery_schedule: [{ day: 'Mercredi', time_slots: [{ time_slot: '09h00-10h00' }] }] },
+    ];
+    // Tous les mercredis des deux prochaines semaines sont complets.
+    mockSlotCounts = { '09h00': 10 };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('slots-none')).toBeTruthy());
     expect(confirm().props.accessibilityState?.disabled).toBe(true);
   });
 
