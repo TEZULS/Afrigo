@@ -98,7 +98,7 @@ export const PersistentBottomNav: React.FC = () => {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const cartCount = useCart((s) => s.lines.reduce((acc, l) => acc + l.quantity, 0));
-  const { unreadCount } = useNotificationsFeed();
+  const { badgeCount } = useNotificationsFeed();
 
   const activeTab = ROUTE_TO_TAB[route.name] ?? null;
   const bottomPad = Math.max(insets.bottom, Platform.OS === 'ios' ? 10 : 8);
@@ -143,7 +143,7 @@ export const PersistentBottomNav: React.FC = () => {
         Icon={Bell}
         label="Notifications"
         active={activeTab === 'notifications'}
-        badge={unreadCount}
+        badge={badgeCount}
         onPress={() => nav.navigate('ClientTabs', { screen: 'NotificationsTab' })}
       />
     </View>
