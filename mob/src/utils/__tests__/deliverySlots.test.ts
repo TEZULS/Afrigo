@@ -1,7 +1,9 @@
 import type { ScheduleDay } from '../deliverySchedule';
 import {
-  availableTableSlotsToday,
-  availableZoneSlotsToday,
+  availableZoneSlotsOn,
+  formatRelativeDeliveryDay,
+  nextTableSlots,
+  zoneCandidateDays,
   formatDeliveryDay,
   formatSlotDay,
   formatSlotRange,
@@ -30,41 +32,56 @@ const schedule: ScheduleDay[] = [
   { day: 'Jeudi', time_slots: [{ time_slot: '09h00-18h30', max_orders: 10 }] },
 ];
 
-describe('availableZoneSlotsToday', () => {
-  it('à 10:00, ne propose que les créneaux pas encore commencés, triés par heure', () => {
-    const options = availableZoneSlotsToday(schedule, {}, wednesday10h);
+describe('availableZoneSlotsOn', () => {
+  it('à 10:00, ne propose que les créneaux d’aujourd’hui pas encore commencés, triés par heure', () => {
+    const options = availableZoneSlotsOn(schedule, wednesday10h, {}, wednesday10h);
     // 09h00 et 10h00 ont commencé ; 11h00 puis 14h00 restent.
     expect(options.map((o) => o.time_slot)).toEqual(['11h00-12h00', '14h00-15h00']);
   });
 
-  it('ne propose que le jour même (les créneaux du jeudi n’apparaissent pas)', () => {
-    const options = availableZoneSlotsToday(schedule, {}, wednesday10h);
-    expect(options.some((o) => o.time_slot === '09h00-18h30')).toBe(false);
+  it('un jour futur propose tous ses créneaux, même ceux du matin', () => {
+    const thursday = new Date(2026, 8, 24);
+    expect(availableZoneSlotsOn(schedule, thursday, {}, wednesday10h).map((o) => o.time_slot)).toEqual([
+      '09h00-18h30',
+    ]);
   });
 
   it('écarte un créneau complet', () => {
-    const options = availableZoneSlotsToday(schedule, { '11h00': 10 }, wednesday10h);
+    const options = availableZoneSlotsOn(schedule, wednesday10h, { '11h00': 10 }, wednesday10h);
     expect(options.map((o) => o.time_slot)).toEqual(['14h00-15h00']);
   });
 
   it('garde une clé stable (position dans la journée) pour distinguer deux plages identiques', () => {
-    const twins: ScheduleDay[] = [
-      { day: 'Mercredi', time_slots: ['12h00-13h00', '12h00-13h00'] },
-    ];
-    expect(availableZoneSlotsToday(twins, {}, wednesday10h).map((o) => o.key)).toEqual([
+    const twins: ScheduleDay[] = [{ day: 'Mercredi', time_slots: ['12h00-13h00', '12h00-13h00'] }];
+    expect(availableZoneSlotsOn(twins, wednesday10h, {}, wednesday10h).map((o) => o.key)).toEqual([
       'zone-0',
       'zone-1',
     ]);
   });
+});
 
-  it('rien quand la zone ne livre pas aujourd’hui ou que tout a commencé', () => {
+describe('zoneCandidateDays', () => {
+  it('commence par aujourd’hui tant qu’il reste un créneau', () => {
+    expect(zoneCandidateDays(schedule, wednesday10h).map(toYmd).slice(0, 3)).toEqual([
+      '2026-09-23',
+      '2026-09-24',
+      '2026-09-30',
+    ]);
+  });
+
+  it('plus rien aujourd’hui : le premier jour proposé est demain', () => {
     const evening = new Date(2026, 8, 23, 20, 0);
-    expect(availableZoneSlotsToday(schedule, {}, evening)).toEqual([]);
-    expect(availableZoneSlotsToday([{ day: 'Lundi', time_slots: ['09h00-12h00'] }], {}, wednesday10h)).toEqual([]);
+    expect(toYmd(zoneCandidateDays(schedule, evening)[0]!)).toBe('2026-09-24');
+  });
+
+  it('saute les jours sans livraison jusqu’au prochain jour livrable', () => {
+    const mondayOnly: ScheduleDay[] = [{ day: 'Lundi', time_slots: ['09h00-12h00'] }];
+    expect(toYmd(zoneCandidateDays(mondayOnly, wednesday10h)[0]!)).toBe('2026-09-28');
+    expect(zoneCandidateDays([], wednesday10h)).toEqual([]);
   });
 });
 
-describe('availableTableSlotsToday', () => {
+describe('nextTableSlots', () => {
   const row = (id: string, date: string, time_slot: string, extra = {}) => ({
     id,
     date,
@@ -75,8 +92,8 @@ describe('availableTableSlotsToday', () => {
     ...extra,
   });
 
-  it('ne garde que les lignes d’aujourd’hui, disponibles, non complètes et pas commencées', () => {
-    const options = availableTableSlotsToday(
+  it('garde les lignes d’aujourd’hui disponibles, non complètes et pas commencées', () => {
+    const next = nextTableSlots(
       [
         row('late', '2026-09-23', '17:00-18:00'),
         row('started', '2026-09-23', '09:30-10:30'),
@@ -87,8 +104,19 @@ describe('availableTableSlotsToday', () => {
       ],
       wednesday10h,
     );
-    expect(options.map((o) => o.key)).toEqual(['soon', 'late']);
-    expect(options[0]!.tableRow?.id).toBe('soon');
+    expect(next?.date).toBe('2026-09-23');
+    expect(next?.options.map((o) => o.key)).toEqual(['soon', 'late']);
+    expect(next?.options[0]!.tableRow?.id).toBe('soon');
+  });
+
+  it('plus rien aujourd’hui : passe au jour suivant qui a des créneaux', () => {
+    const next = nextTableSlots(
+      [row('started', '2026-09-23', '09:30-10:30'), row('tomorrow', '2026-09-24', '08:00-09:00')],
+      wednesday10h,
+    );
+    expect(next?.date).toBe('2026-09-24');
+    expect(next?.options.map((o) => o.key)).toEqual(['tomorrow']);
+    expect(nextTableSlots([row('old', '2026-09-22', '11:00-12:00')], wednesday10h)).toBeNull();
   });
 });
 
@@ -133,5 +161,10 @@ describe('libellés de date', () => {
     expect(formatSlotDay('2026-09-27')).toBe('Dimanche 27 Sept.');
     expect(formatSlotDay('2026-01-01')).toBe('Jeudi 01 Janv.');
     expect(toYmd(new Date(2026, 0, 5))).toBe('2026-01-05');
+    expect(formatRelativeDeliveryDay(new Date(2026, 8, 23), wednesday10h)).toBe(
+      "Aujourd'hui · Mercredi 23 Sept.",
+    );
+    expect(formatRelativeDeliveryDay(new Date(2026, 8, 24), wednesday10h)).toBe('Demain · Jeudi 24 Sept.');
+    expect(formatRelativeDeliveryDay(new Date(2026, 8, 30), wednesday10h)).toBe('Mercredi 30 Sept.');
   });
 });
