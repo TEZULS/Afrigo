@@ -52,7 +52,7 @@ const routeForPayload = (data: PushPayload | undefined) => {
 export const usePushNotifications = () => {
   const { isAuthenticated, user } = useAuth();
   const queryClient = useQueryClient();
-  const { unreadCount } = useNotificationsFeed();
+  const { badgeCount } = useNotificationsFeed();
   const handledColdStart = useRef(false);
 
   // Handler d'affichage + canal Android : indispensables avant toute réception.
@@ -110,6 +110,6 @@ export const usePushNotifications = () => {
 
   // Pastille sur l'icône de l'app alignée sur le compteur 🔔.
   useEffect(() => {
-    void setAppBadgeCount(isAuthenticated ? unreadCount : 0);
-  }, [unreadCount, isAuthenticated]);
+    void setAppBadgeCount(isAuthenticated ? badgeCount : 0);
+  }, [badgeCount, isAuthenticated]);
 };
