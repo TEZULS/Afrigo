@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, StyleSheet, FlatList, Pressable, RefreshControl, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -20,26 +20,29 @@ export const NotificationsScreen: React.FC = () => {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
   const { isAuthenticated } = useAuth();
-  const { items, isLoading, isRefreshing, refresh, markRead, markAllRead, remove, unreadCount } =
-    useNotificationsFeed();
+  const {
+    items,
+    isLoading,
+    isRefreshing,
+    refresh,
+    markRead,
+    markAllRead,
+    markSeen,
+    remove,
+    unreadCount,
+  } = useNotificationsFeed();
   const [selected, setSelected] = useState<NotificationItem | null>(null);
 
   /**
-   * Quitter l'écran vaut « tout vu » : le badge de la cloche retombe à zéro
-   * même si l'utilisateur n'a pas ouvert chaque notification. Tant qu'il est
-   * sur l'écran, les non-lues restent surlignées pour qu'il les repère.
-   * `markAllRead` est lu via une ref : le nettoyage de `useFocusEffect` ne
-   * doit pas se réabonner à chaque rafraîchissement du fil.
+   * Ouvrir l'écran remet la bulle de la cloche à zéro, sans rien marquer comme
+   * lu : chaque notification reste surlignée tant qu'elle n'a pas été ouverte.
+   * `markSeen` change quand une notification plus récente arrive : l'effet se
+   * relance alors, et la bulle reste à zéro tant que l'écran est affiché.
    */
-  const markAllReadRef = useRef(markAllRead);
-  markAllReadRef.current = markAllRead;
   useFocusEffect(
-    useCallback(
-      () => () => {
-        markAllReadRef.current();
-      },
-      [],
-    ),
+    useCallback(() => {
+      markSeen();
+    }, [markSeen]),
   );
 
   /** Appui sur une ligne : lecture du texte complet dans la feuille de détail. */

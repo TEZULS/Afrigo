@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert } from 'react-native';
+import { Alert, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { renderWithProviders, screen, waitFor, fireEvent, act } from '@/__tests__/test-utils';
 
@@ -87,6 +87,7 @@ jest.mock('@/api/entities', () => ({
 }));
 
 import { NotificationsScreen } from '../NotificationsScreen';
+import { useNotificationsFeed } from '@/hooks/useNotificationsFeed';
 import { resetNotificationsReadCache } from '@/hooks/useNotificationsFeed';
 
 const wrap = (ui: React.ReactElement) => <NavigationContainer>{ui}</NavigationContainer>;
@@ -154,18 +155,28 @@ describe('NotificationsScreen', () => {
     alertSpy.mockRestore();
   });
 
-  it('quitter l’écran marque tout comme lu (badge à zéro)', async () => {
-    renderWithProviders(wrap(<NotificationsScreen />));
+  it('ouvrir l’écran remet la bulle à zéro, mais les notifications restent non lues', async () => {
+    // La bulle de la cloche (barre du bas) lit le même fil que l'écran.
+    const Bubble = () => <Text testID="bell-bubble">{useNotificationsFeed().badgeCount}</Text>;
+    renderWithProviders(
+      wrap(
+        <>
+          <Bubble />
+          <NotificationsScreen />
+        </>,
+      ),
+    );
     await waitFor(() => expect(screen.getByTestId('notification-row-n_long')).toBeTruthy());
-    // Bouton « tout marquer comme lu » présent = il reste des non-lues.
-    expect(screen.getByLabelText('Tout marquer comme lu')).toBeTruthy();
-    expect(focusCleanup).toBeDefined();
 
+    await waitFor(() => expect(screen.getByTestId('bell-bubble')).toHaveTextContent('0'));
+    // Toujours des non-lues : le bouton « tout marquer comme lu » reste proposé…
+    expect(screen.getByLabelText('Tout marquer comme lu')).toBeTruthy();
+    // … et quitter l'écran ne les marque plus comme lues.
     act(() => {
       focusCleanup?.();
     });
-
-    await waitFor(() => expect(screen.queryByLabelText('Tout marquer comme lu')).toBeNull());
+    expect(screen.getByLabelText('Tout marquer comme lu')).toBeTruthy();
+    expect(mockReadCreate).not.toHaveBeenCalled();
   });
 });
 
