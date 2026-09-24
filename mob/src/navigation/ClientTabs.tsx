@@ -91,7 +91,7 @@ export const ClientTabs: React.FC = () => {
   const bottomPad = Math.max(insets.bottom, Platform.OS === 'ios' ? 10 : 8);
   const cartLines = useCart((s) => s.lines);
   const cartCount = cartLines.reduce((acc, l) => acc + l.quantity, 0);
-  const { unreadCount } = useNotificationsFeed();
+  const { badgeCount } = useNotificationsFeed();
 
   return (
     <Tab.Navigator
@@ -185,7 +185,7 @@ export const ClientTabs: React.FC = () => {
         options={{
           title: 'Notifications',
           tabBarIcon: ({ color, focused }) => (
-            <TabGlyph Icon={Bell} focused={focused} color={color} badge={unreadCount} />
+            <TabGlyph Icon={Bell} focused={focused} color={color} badge={badgeCount} />
           ),
         }}
       />
