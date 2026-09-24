@@ -212,6 +212,18 @@ describe('useNotificationsFeed', () => {
     await waitFor(() => expect(result.current.unreadCount).toBe(0));
     expect(result.current.items.every((i) => !i.unread)).toBe(true);
   });
+
+  it('ouvrir l’écran (« vu ») vide la bulle sans marquer les notifications comme lues', async () => {
+    const { result } = renderHook(() => useNotificationsFeed(), { wrapper });
+    await waitFor(() => expect(result.current.badgeCount).toBeGreaterThan(0));
+    const unread = result.current.unreadCount;
+    expect(result.current.badgeCount).toBe(unread);
+
+    act(() => result.current.markSeen());
+    await waitFor(() => expect(result.current.badgeCount).toBe(0));
+    expect(result.current.unreadCount).toBe(unread);
+    expect(mockNotificationReadCreate).not.toHaveBeenCalled();
+  });
 });
 
 describe('useNotificationsFeed — demandes de retour', () => {

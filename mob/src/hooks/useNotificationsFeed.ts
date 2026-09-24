@@ -147,6 +147,12 @@ const READ_IDS_KEY = 'notifications_read_ids';
 const READ_BEFORE_KEY = 'notifications_read_before_at';
 /** Cache local des identifiants supprimés par le client (doublon de `NotificationRead.deleted`). */
 const HIDDEN_IDS_KEY = 'notifications_hidden_ids';
+/**
+ * Dernière ouverture de l'écran Notifications : la bulle ne compte que les
+ * non-lues arrivées après. Ouvrir l'écran remet la bulle à zéro sans marquer
+ * les notifications comme lues (elles le deviennent une à une, à l'appui).
+ */
+const BADGE_SEEN_KEY = 'notifications_badge_seen_at';
 /** Notifications de retour déjà vues par l'appareil (pour n'alerter que sur du nouveau). */
 const RETURN_SEEN_KEY = 'notifications_return_seen_ids';
 
@@ -160,6 +166,7 @@ let version = 0;
 let readIds: string[] = [];
 let readIdSet = new Set<string>();
 let readBeforeMs = 0;
+let badgeSeenMs = 0;
 let hiddenIds: string[] = [];
 let hiddenIdSet = new Set<string>();
 
@@ -224,6 +231,8 @@ const hydrateReadState = () => {
         ? storedHidden.filter((v) => typeof v === 'string')
         : [];
       hiddenIdSet = new Set(hiddenIds);
+
+      badgeSeenMs = Number(kv.get<string | number>(BADGE_SEEN_KEY) ?? 0) || 0;
 
       const storedBefore = Number(kv.get<string | number>(READ_BEFORE_KEY) ?? 0) || 0;
       if (storedBefore) {
@@ -378,6 +387,8 @@ export const resetNotificationsReadCache = () => {
   persistHiddenIds([]);
   readBeforeMs = 0;
   kv.remove(READ_BEFORE_KEY);
+  badgeSeenMs = 0;
+  kv.remove(BADGE_SEEN_KEY);
   kv.remove(RETURN_SEEN_KEY);
   emit();
 };
@@ -424,6 +435,18 @@ export const markNotificationRead = (id: string) => {
   if (!id || !mergeReadIds([id])) return;
   emit();
   if (currentEmail) void persistReadOnServer(currentEmail, [id]);
+};
+
+/**
+ * Écran Notifications ouvert : la bulle retombe à zéro. `latestMs` = date de
+ * la notification la plus récente affichée (couvre une horloge serveur en avance).
+ */
+export const markNotificationsSeen = (latestMs = 0) => {
+  const next = Math.max(Date.now(), latestMs);
+  if (next <= badgeSeenMs) return;
+  badgeSeenMs = next;
+  kv.set(BADGE_SEEN_KEY, String(badgeSeenMs));
+  emit();
 };
 
 /** « Tout marquer comme lu » : le badge retombe à 0. */
@@ -665,6 +688,26 @@ export const useNotificationsFeed = () => {
 
   const unreadCount = useMemo(() => items.filter((i) => i.unread).length, [items]);
 
+  /**
+   * Bulle de la cloche : non-lues arrivées depuis la dernière ouverture de
+   * l'écran. Une date illisible compte tant que l'écran n'a jamais été ouvert.
+   */
+  const badgeCount = useMemo(
+    () =>
+      items.filter((i) => {
+        if (!i.unread) return false;
+        const ms = toMs(i.date);
+        return ms > 0 ? ms > badgeSeenMs : badgeSeenMs === 0;
+      }).length,
+    // `readVersion` : `badgeSeenMs` change sans que `items` change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, readVersion],
+  );
+
+  /** Date de la notification la plus récente (pour `markNotificationsSeen`). */
+  const latestMs = useMemo(() => items.reduce((m, i) => Math.max(m, toMs(i.date)), 0), [items]);
+  const markSeen = useCallback(() => markNotificationsSeen(latestMs), [latestMs]);
+
   const refresh = useCallback(() => {
     void query.refetch();
   }, [query]);
@@ -680,6 +723,8 @@ export const useNotificationsFeed = () => {
   return {
     items,
     unreadCount,
+    badgeCount,
+    markSeen,
     isLoading: query.isLoading,
     isRefreshing: query.isFetching && !query.isLoading,
     refresh,
@@ -690,5 +735,5 @@ export const useNotificationsFeed = () => {
   };
 };
 
-/** Compteur seul — utilisé par les barres de navigation. */
-export const useUnreadNotificationsCount = () => useNotificationsFeed().unreadCount;
+/** Compteur de la bulle — utilisé par les barres de navigation. */
+export const useUnreadNotificationsCount = () => useNotificationsFeed().badgeCount;
