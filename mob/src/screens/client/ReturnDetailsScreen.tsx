@@ -17,7 +17,6 @@ import { palette } from '@/theme/tokens';
 import { Return } from '@/api/entities';
 import { formatDateTime, formatPrice } from '@/utils/format';
 import {
-  RETURN_STATUS_DESCRIPTIONS,
   returnReasonLabel,
   returnResolutionLabel,
   returnStatusLabel,
@@ -83,11 +82,6 @@ export const ReturnDetailsScreen: React.FC = () => {
         </View>
         <View style={{ height: 8 }} />
         <ReturnTracker status={status} rejectionReason={r.rejection_reason} />
-        {status !== 'rejected' ? (
-          <Text style={[styles.statusHint, { color: colors.mutedForeground }]}>
-            {RETURN_STATUS_DESCRIPTIONS[status] ?? RETURN_STATUS_DESCRIPTIONS.pending}
-          </Text>
-        ) : null}
       </Card>
 
       {r.admin_message ? (
@@ -198,7 +192,6 @@ export const ReturnDetailsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   headRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   section: { fontSize: 14, fontWeight: '700', marginTop: 16 },
-  statusHint: { fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 4 },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
