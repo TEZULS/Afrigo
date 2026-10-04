@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatPlannedDelivery } from '@/utils/deliverySlots';
 import { View, Text, StyleSheet, Modal, ScrollView } from 'react-native';
 import { Pressable } from '@/components/ui/Pressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,6 +34,7 @@ interface OrderSummary {
   delivery_city?: string;
   estimated_delivery?: string;
   delivery_time?: string;
+  delivery_time_slot?: string;
   created_date?: string;
   items?: { product_name?: string; name?: string; quantity: number }[];
 }
@@ -217,8 +219,7 @@ export const NotificationDetailSheet: React.FC<Props> = ({
                       <View style={styles.orderRow}>
                         <Calendar size={15} color={colors.mutedForeground} />
                         <Text style={[styles.orderMeta, { color: colors.foreground }]}>
-                          Livraison prévue : {order.estimated_delivery}
-                          {order.delivery_time ? ` à ${order.delivery_time}` : ''}
+                          Livraison prévue : {formatPlannedDelivery(order)}
                         </Text>
                       </View>
                     ) : null}

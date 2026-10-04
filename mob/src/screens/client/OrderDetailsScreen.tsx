@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatPlannedDelivery } from '@/utils/deliverySlots';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useQuery } from '@tanstack/react-query';
@@ -73,6 +74,7 @@ interface OrderFull {
   customer_email?: string;
   estimated_delivery?: string;
   delivery_time?: string;
+  delivery_time_slot?: string;
   notes?: string;
   cancellation_reason?: string;
   delivered_date?: string;
@@ -276,8 +278,7 @@ export const OrderDetailsScreen: React.FC = () => {
             <View style={{ flex: 1 }}>
               <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>Livraison prévue</Text>
               <Text style={{ color: colors.foreground, fontWeight: '700', marginTop: 2 }}>
-                {order.estimated_delivery}
-                {order.delivery_time ? ` à ${order.delivery_time}` : ''}
+                {formatPlannedDelivery(order)}
               </Text>
             </View>
           </View>
