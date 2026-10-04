@@ -5,6 +5,7 @@ import {
   nextTableSlots,
   zoneCandidateDays,
   formatDeliveryDay,
+  formatPlannedDelivery,
   formatSlotDay,
   formatSlotRange,
   hasZoneTimeSlots,
@@ -166,5 +167,44 @@ describe('libellés de date', () => {
     );
     expect(formatRelativeDeliveryDay(new Date(2026, 8, 24), wednesday10h)).toBe('Demain · Jeudi 24 Sept.');
     expect(formatRelativeDeliveryDay(new Date(2026, 8, 30), wednesday10h)).toBe('Mercredi 30 Sept.');
+  });
+});
+
+describe('formatPlannedDelivery', () => {
+  /** Loin des dates testées : le jour s'écrit en chiffres. */
+  const later = new Date(2026, 10, 15);
+  /** Jeudi 24 septembre 2026, 10 h. */
+  const thursday = new Date(2026, 8, 24, 10, 0);
+
+  it('jour proche en toutes lettres', () => {
+    const at = (estimated_delivery: string) =>
+      formatPlannedDelivery({ estimated_delivery, delivery_time_slot: '17:00-18:30' }, thursday);
+    expect(at('2026-09-24')).toBe("Aujourd'hui entre 17:00 - 18:30");
+    expect(at('2026-09-25')).toBe('Demain entre 17:00 - 18:30');
+    expect(at('2026-09-26')).toBe('Après-demain entre 17:00 - 18:30');
+    expect(at('2026-09-23')).toBe('Hier entre 17:00 - 18:30');
+    expect(at('2026-09-27')).toBe('27-09-2026 entre 17:00 - 18:30');
+    // Facture : toujours la date en chiffres.
+    expect(
+      formatPlannedDelivery({ estimated_delivery: '2026-09-25', delivery_time_slot: '17:00-18:30' }, thursday, false),
+    ).toBe('25-09-2026 entre 17:00 - 18:30');
+  });
+
+  it('jour au format JJ-MM-AAAA puis le créneau', () => {
+    expect(
+      formatPlannedDelivery({
+        estimated_delivery: '2026-09-27',
+        delivery_time: '17:00',
+        delivery_time_slot: '17:00-18:30',
+      }, later),
+    ).toBe('27-09-2026 entre 17:00 - 18:30');
+  });
+
+  it('sans créneau : l’heure seule, sinon la date', () => {
+    expect(formatPlannedDelivery({ estimated_delivery: '2026-09-27', delivery_time: '17:00' }, later)).toBe(
+      '27-09-2026 à 17:00',
+    );
+    expect(formatPlannedDelivery({ estimated_delivery: '2026-09-27' }, later)).toBe('27-09-2026');
+    expect(formatPlannedDelivery({ estimated_delivery: '' })).toBe('');
   });
 });
