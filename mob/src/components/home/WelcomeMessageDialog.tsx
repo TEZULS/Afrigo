@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useLaunchIntro } from '@/stores/launchIntro';
 import { View, Text, StyleSheet, Modal, ScrollView } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
@@ -33,6 +34,8 @@ export const WelcomeMessageDialog: React.FC = () => {
   const { colors } = useTheme();
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { user, isLoadingAuth } = useAuth();
+  /** Attend la fin de l'animation d'ouverture (une `Modal` la recouvrirait). */
+  const introDone = useLaunchIntro((s) => s.done);
   const email = user?.email ?? null;
   const [hydrated, setHydrated] = useState(false);
   const [dismissedNow, setDismissedNow] = useState<string | null>(null);
@@ -58,7 +61,7 @@ export const WelcomeMessageDialog: React.FC = () => {
     return m && m.id !== dismissedNow ? m : null;
   }, [hydrated, isLoadingAuth, query.data, email, dismissedNow]);
 
-  if (!message) return null;
+  if (!message || !introDone) return null;
 
   const dismiss = () => {
     const frequency = message.display_frequency || 'once';
