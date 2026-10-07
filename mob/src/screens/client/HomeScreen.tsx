@@ -37,7 +37,7 @@ import { palette } from '@/theme/tokens';
 import type { RootStackParamList } from '@/navigation/types';
 import { sellingPrice } from '@/utils/productPricing';
 import { selectNewProducts } from '@/utils/newProducts';
-import { headerCollapseProgress } from '@/utils/headerCollapse';
+import { nextHeaderCollapse } from '@/utils/headerCollapse';
 
 const H_PAD = 16;
 const GRID_GAP = 12;
@@ -95,12 +95,18 @@ export const HomeScreen: React.FC = () => {
       categoryBottom: to(4, 2),
     };
   }, [headerProgress]);
+  /** Dernière valeur de repli appliquée (voir `nextHeaderCollapse`). */
+  const lastCollapse = useRef(0);
   const onListScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const y = e.nativeEvent.contentOffset.y;
       const past = y > SCROLL_TOP_THRESHOLD;
       setShowScrollTop((prev) => (prev === past ? prev : past));
-      headerProgress.setValue(headerCollapseProgress(y));
+      const next = nextHeaderCollapse(lastCollapse.current, y);
+      if (next !== null) {
+        lastCollapse.current = next;
+        headerProgress.setValue(next);
+      }
     },
     [headerProgress],
   );
