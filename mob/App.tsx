@@ -18,6 +18,8 @@ import { configureGoogleSignIn } from '@/services/socialAuth';
 import { configureNotificationHandler } from '@/services/pushNotifications';
 import { ToastHost } from '@/components/ui/ToastHost';
 import { LegalConsentGate } from '@/components/legal/LegalConsentGate';
+import { LaunchIntro } from '@/components/LaunchIntro';
+import { useLaunchIntro } from '@/stores/launchIntro';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
   /* noop */
@@ -31,8 +33,12 @@ const stripePublishableKey = env.stripe.publishableKey.trim();
 const stripeNativeReady =
   (stripePublishableKey.startsWith('pk_test_') || stripePublishableKey.startsWith('pk_live_')) &&
   stripePublishableKey.length >= 30;
+// Animation d'ouverture (panier + « AfriGo ») : les fenêtres modales l'attendent.
+useLaunchIntro.getState().start();
 
 export default function App() {
+  const introDone = useLaunchIntro((s) => s.done);
+  const finishIntro = useLaunchIntro((s) => s.finish);
   useEffect(() => {
     configureGoogleSignIn();
     // Doit être posé avant toute réception de push (y compris au démarrage à froid).
@@ -98,6 +104,8 @@ export default function App() {
           </ThemeProvider>
         </SafeAreaProvider>
       </ErrorBoundary>
+      {/* Au-dessus de tout, le temps que l'app se charge derrière. */}
+      {!introDone ? <LaunchIntro onDone={finishIntro} /> : null}
     </GestureHandlerRootView>
   );
 }
