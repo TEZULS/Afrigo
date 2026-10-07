@@ -37,7 +37,7 @@ import { palette } from '@/theme/tokens';
 import type { RootStackParamList } from '@/navigation/types';
 import { sellingPrice } from '@/utils/productPricing';
 import { selectNewProducts } from '@/utils/newProducts';
-import { headerCollapseProgress } from '@/utils/headerCollapse';
+import { nextHeaderCollapse } from '@/utils/headerCollapse';
 
 const H_PAD = 16;
 const GRID_GAP = 12;
@@ -95,12 +95,18 @@ export const HomeScreen: React.FC = () => {
       categoryBottom: to(4, 2),
     };
   }, [headerProgress]);
+  /** Dernière valeur de repli appliquée (voir `nextHeaderCollapse`). */
+  const lastCollapse = useRef(0);
   const onListScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const y = e.nativeEvent.contentOffset.y;
       const past = y > SCROLL_TOP_THRESHOLD;
       setShowScrollTop((prev) => (prev === past ? prev : past));
-      headerProgress.setValue(headerCollapseProgress(y));
+      const next = nextHeaderCollapse(lastCollapse.current, y);
+      if (next !== null) {
+        lastCollapse.current = next;
+        headerProgress.setValue(next);
+      }
     },
     [headerProgress],
   );
@@ -145,7 +151,14 @@ export const HomeScreen: React.FC = () => {
   const [category, setCategory] = useState('all');
   const [shopMode, setShopMode] = useState<'food' | 'cosmetique'>('food');
 
-  const cart = useCart();
+  /*
+   * Sélecteurs plutôt que tout le panier : l'accueil ne se redessine que pour
+   * les lignes du panier, et seules les cartes dont la quantité change suivent
+   * (ProductCard est mémoïsée).
+   */
+  const cartLines = useCart((s) => s.lines);
+  const addToCart = useCart((s) => s.add);
+  const removeFromCart = useCart((s) => s.remove);
   const openMenu = useMenuDrawer((s) => s.open);
   const appliedQuery = useHomeSearch((s) => s.query);
   const appliedQueryToken = useHomeSearch((s) => s.queryToken);
@@ -254,12 +267,39 @@ export const HomeScreen: React.FC = () => {
     [modeFiltered],
   );
 
-  const cartQty = useCallback(
-    (id: string) => cart.lines.find((l) => l.productId === id)?.quantity ?? 0,
-    [cart.lines],
-  );
+  /** Quantité au panier par produit (première ligne du produit, comme avant). */
+  const qtyById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const l of cartLines) if (!map.has(l.productId)) map.set(l.productId, l.quantity);
+    return map;
+  }, [cartLines]);
 
   const customerEmail = user?.email;
+
+  /** Gestes « + / − » stables : une carte ne se redessine pas pour rien. */
+  const onAddProduct = useCallback(
+    (p: ProductDTO) => {
+      const line = {
+        productId: p.id,
+        name: p.name,
+        imageUrl: p.image_url,
+        unitPrice: sellingPrice(p),
+        category: p.category,
+        unit: p.unit,
+        vatRate: p.vat_rate ?? null,
+      };
+      addToCart(line);
+      if (customerEmail) void remoteUpsertAfterAdd(customerEmail, { ...line, quantity: 1 });
+    },
+    [addToCart, customerEmail],
+  );
+  const onRemoveProduct = useCallback(
+    (p: ProductDTO) => {
+      removeFromCart(p.id);
+      if (customerEmail) void remoteDecrementAfterRemove(customerEmail, p.id);
+    },
+    [removeFromCart, customerEmail],
+  );
 
   const listInnerPad = GRID_GAP / 2;
   const horizontalPad = listInnerPad + H_PAD / 2;
@@ -465,24 +505,9 @@ export const HomeScreen: React.FC = () => {
             >
               <ProductCard
                 product={product}
-                cartQuantity={cartQty(product.id)}
-                onAddToCart={(p) => {
-                  const line = {
-                    productId: p.id,
-                    name: p.name,
-                    imageUrl: p.image_url,
-                    unitPrice: sellingPrice(p),
-                    category: p.category,
-                    unit: p.unit,
-                    vatRate: p.vat_rate ?? null,
-                  };
-                  cart.add(line);
-                  if (customerEmail) void remoteUpsertAfterAdd(customerEmail, { ...line, quantity: 1 });
-                }}
-                onRemoveFromCart={(p) => {
-                  cart.remove(p.id);
-                  if (customerEmail) void remoteDecrementAfterRemove(customerEmail, p.id);
-                }}
+                cartQuantity={qtyById.get(product.id) ?? 0}
+                onAddToCart={onAddProduct}
+                onRemoveFromCart={onRemoveProduct}
               />
             </View>
           ))}
@@ -492,7 +517,7 @@ export const HomeScreen: React.FC = () => {
         </View>
       );
     },
-    [cart, cartQty, customerEmail, listInnerPad, horizontalPad, colors.foreground],
+    [qtyById, onAddProduct, onRemoveProduct, listInnerPad, horizontalPad, colors.foreground],
   );
 
   const renderProductsList = () => (
