@@ -454,6 +454,16 @@ export const ProductDetailsScreen: React.FC = () => {
 
           <Text style={[styles.title, { color: colors.foreground }]}>{product.name}</Text>
 
+          {/* Description entre le titre et le prix (demande du 2026-09-30). */}
+          {product.description ? (
+            <Text
+              style={[styles.desc, { color: colors.mutedForeground }]}
+              testID="product-description"
+            >
+              {product.description}
+            </Text>
+          ) : null}
+
           {country ? (
             <View style={styles.countryRow}>
               <Text style={{ fontSize: 22 }}>{country.flag}</Text>
@@ -528,10 +538,6 @@ export const ProductDetailsScreen: React.FC = () => {
               </Text>
               <Text style={{ color: colors.mutedForeground }}>({reviews.length})</Text>
             </Pressable>
-          ) : null}
-
-          {product.description ? (
-            <Text style={[styles.desc, { color: colors.mutedForeground }]}>{product.description}</Text>
           ) : null}
 
           {Object.keys(variantsByType).length > 0 ? (
@@ -886,7 +892,7 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 14,
   },
-  desc: { fontSize: 14, lineHeight: 21, marginTop: 14 },
+  desc: { fontSize: 14, lineHeight: 21, marginTop: 6 },
   sectionLbl: { fontSize: 13, fontWeight: '700', marginBottom: 8 },
   variantHint: { fontSize: 11, fontWeight: '600', marginTop: -4, marginBottom: 8 },
   choiceWarn: { fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: 10 },
