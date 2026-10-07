@@ -139,6 +139,24 @@ export const formatSlotDay = (ymd: string): string => {
 export const isSameDay = (a: Date, b: Date): boolean =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
+/** Jours proches en toutes lettres, sinon `JJ-MM-AAAA`. */
+const NEAR_DAYS: Record<number, string> = {
+  [-1]: 'Hier',
+  0: "Aujourd'hui",
+  1: 'Demain',
+  2: 'Après-demain',
+};
+
+const relativeDayLabel = (year: number, month: number, day: number, now: Date): string => {
+  const target = new Date(year, month - 1, day);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const offset = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+  return (
+    NEAR_DAYS[offset] ??
+    `${String(day).padStart(2, '0')}-${String(month).padStart(2, '0')}-${year}`
+  );
+};
+
 /** Minuit local, `offset` jours après `now`. */
 const dayAfter = (now: Date, offset: number): Date =>
   new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
@@ -211,4 +229,34 @@ export const nextTableSlots = (
   }
   const first = [...byDate.keys()].sort()[0];
   return first ? { date: first, options: byDate.get(first)!.sort(byStart) } : null;
+};
+
+/**
+ * Livraison prévue d'une commande : `Demain entre 17:00 - 18:30` (créneau
+ * connu), sinon `Demain à 17:00`, sinon le jour seul. Un jour proche est écrit
+ * en toutes lettres (« Hier », « Aujourd'hui », « Demain », « Après-demain »),
+ * les autres au format `27-09-2026`.
+ */
+export const formatPlannedDelivery = (
+  order: {
+    estimated_delivery?: string | null;
+    delivery_time?: string | null;
+    delivery_time_slot?: string | null;
+  },
+  now: Date = new Date(),
+  /** `false` : toujours la date en chiffres (facture, relue plus tard). */
+  relative = true,
+): string => {
+  const raw = (order.estimated_delivery ?? '').trim();
+  if (!raw) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  const date = m
+    ? relative
+      ? relativeDayLabel(Number(m[1]), Number(m[2]), Number(m[3]), now)
+      : `${m[3]}-${m[2]}-${m[1]}`
+    : raw;
+  const slot = order.delivery_time_slot?.trim();
+  if (slot) return `${date} entre ${formatSlotRange(slot)}`;
+  const time = order.delivery_time?.trim();
+  return time ? `${date} à ${time}` : date;
 };

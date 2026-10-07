@@ -13,6 +13,7 @@
  */
 
 import * as Print from 'expo-print';
+import { formatPlannedDelivery } from '@/utils/deliverySlots';
 import * as Sharing from 'expo-sharing';
 import { File, Paths } from 'expo-file-system';
 import { formatDateTime } from '@/utils/format';
@@ -45,6 +46,7 @@ export interface InvoiceOrder {
   delivery_city?: string;
   estimated_delivery?: string;
   delivery_time?: string;
+  delivery_time_slot?: string;
 }
 
 export interface InvoiceCustomer {
@@ -213,7 +215,7 @@ export const buildInvoiceHtml = (order: InvoiceOrder, customer?: InvoiceCustomer
       <p>${escapeHtml([order.delivery_postal_code, order.delivery_city].filter(Boolean).join(' '))}</p>
       ${
         order.estimated_delivery
-          ? `<p>Prévue le ${escapeHtml(order.estimated_delivery)}${order.delivery_time ? ` à ${escapeHtml(order.delivery_time)}` : ''}</p>`
+          ? `<p>Prévue le ${escapeHtml(formatPlannedDelivery(order, new Date(), false))}</p>`
           : ''
       }
     </div>
