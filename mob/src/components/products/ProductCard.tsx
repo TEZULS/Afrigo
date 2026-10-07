@@ -54,7 +54,7 @@ interface ProductCardProps {
   onRemoveFromCart: (p: ProductDTO) => void;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({
+const ProductCardView: React.FC<ProductCardProps> = ({
   product,
   cartQuantity = 0,
   onAddToCart,
@@ -216,6 +216,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     </Pressable>
   );
 };
+
+
+/**
+ * Mémoïsée : dans la grille de l'accueil, seule la carte dont la quantité au
+ * panier change se redessine (au lieu de toute la grille à chaque ajout).
+ */
+export const ProductCard = React.memo(ProductCardView);
 
 const styles = StyleSheet.create({
   card: {
