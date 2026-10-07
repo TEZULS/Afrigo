@@ -100,7 +100,13 @@ const ProductCardView: React.FC<ProductCardProps> = ({
       )}
 
       <View style={[styles.imageWrap, { backgroundColor: palette.slate[50] }]}>
-        <Image source={{ uri: imgUri }} style={styles.image} contentFit="cover" />
+        <Image
+          source={{ uri: imgUri }}
+          style={styles.image}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={product.id}
+        />
         {isOutOfStock && (
           <View style={styles.outOfStock}>
             <Text style={styles.outOfStockText}>Épuisé</Text>
