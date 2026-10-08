@@ -36,7 +36,8 @@ export type NotificationKind =
   | 'product'
   | 'promotion'
   | 'cart'
-  | 'return';
+  | 'return'
+  | 'refund';
 
 export interface NotificationItem {
   id: string;
@@ -109,8 +110,13 @@ interface AppNotificationRow {
   target_audience?: 'all' | 'specific';
   target_emails?: string[];
   related_id?: string | null;
-  related_type?: 'order' | 'product' | 'promotion' | 'none' | 'cart' | null;
+  /** `return` / `refund` : réclamation ou remboursement (fonctions base44 du 2026-10-12). */
+  related_type?: 'order' | 'product' | 'promotion' | 'none' | 'cart' | 'return' | 'refund' | null;
   created_date?: string;
+  /** Posé par `dispatchPushNotifications` : la push serveur est partie. */
+  push_sent?: boolean | null;
+  /** Erreur d'envoi (Apple, Expo) : la notification locale prend alors le relais. */
+  push_error?: string | null;
 }
 
 /** Cf. schéma base44 `NotificationRead`. */
@@ -272,6 +278,10 @@ const remoteKind = (n: AppNotificationRow): NotificationKind => {
       return 'promotion';
     case 'cart':
       return 'cart';
+    case 'return':
+      return 'return';
+    case 'refund':
+      return 'refund';
     default:
       break;
   }
