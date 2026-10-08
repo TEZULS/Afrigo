@@ -1,7 +1,7 @@
 /**
  * Notification locale (affichée par l'appareil, sans serveur) — utilisée quand
  * l'app détecte elle-même un événement à signaler, par exemple un changement
- * de statut sur une demande de retour repéré par le rafraîchissement du fil.
+ * de statut repéré par le rafraîchissement du fil.
  * Best-effort : sans permission ou hors appareil, rien ne se passe.
  */
 
@@ -13,12 +13,19 @@ export interface LocalNotificationInput {
   body: string;
   /** Même charge utile que les push serveur, pour ouvrir le bon écran à l'appui. */
   data?: Record<string, unknown>;
+  /**
+   * Identifiant de l'élément du fil : la même notification n'est jamais
+   * affichée deux fois (elle remplace l'ancienne), et sa suppression dans
+   * l'app la retire aussi du centre de notifications.
+   */
+  identifier?: string;
 }
 
-export const presentLocalNotification = async ({ title, body, data }: LocalNotificationInput) => {
+export const presentLocalNotification = async ({ title, body, data, identifier }: LocalNotificationInput) => {
   try {
     configureNotificationHandler();
     await Notifications.scheduleNotificationAsync({
+      ...(identifier ? { identifier } : {}),
       content: { title, body, data, sound: 'default' },
       // `null` = immédiat ; le canal Android est celui déclaré au démarrage.
       trigger: null,
