@@ -198,6 +198,19 @@ jest.mock('expo-image-picker', () => ({
   MediaTypeOptions: { Images: 'Images', All: 'All', Videos: 'Videos' },
 }));
 
+// Notifications app fermée (expo-background-fetch + expo-task-manager).
+jest.mock('expo-task-manager', () => ({
+  defineTask: jest.fn(),
+  isTaskRegisteredAsync: jest.fn(async () => false),
+}));
+jest.mock('expo-background-fetch', () => ({
+  getStatusAsync: jest.fn(async () => 3),
+  registerTaskAsync: jest.fn(async () => {}),
+  unregisterTaskAsync: jest.fn(async () => {}),
+  BackgroundFetchStatus: { Denied: 1, Restricted: 2, Available: 3 },
+  BackgroundFetchResult: { NoData: 1, NewData: 2, Failed: 3 },
+}));
+
 // expo-location
 jest.mock('expo-location', () => ({
   requestForegroundPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),

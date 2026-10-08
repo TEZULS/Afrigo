@@ -22,7 +22,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppNotification, Message, NotificationRead, Order, Return } from '@/api/entities';
 import { useAuth } from '@/lib/AuthContext';
 import { hydrateKvFromDisk, kv } from '@/services/storage';
-import { presentLocalNotification } from '@/services/localNotifications';
+import { dismissPresentedNotifications, presentLocalNotification } from '@/services/localNotifications';
 import { serverDateMs } from '@/utils/serverDate';
 
 /**
@@ -36,7 +36,8 @@ export type NotificationKind =
   | 'product'
   | 'promotion'
   | 'cart'
-  | 'return';
+  | 'return'
+  | 'refund';
 
 export interface NotificationItem {
   id: string;
@@ -61,6 +62,8 @@ export interface NotificationItem {
    * plancher de migration `readBeforeMs`.
    */
   derived?: boolean;
+  /** Déjà poussée par le serveur (`AppNotification.push_sent`) : pas de doublon local. */
+  pushSent?: boolean;
   unread: boolean;
 }
 
@@ -109,8 +112,13 @@ interface AppNotificationRow {
   target_audience?: 'all' | 'specific';
   target_emails?: string[];
   related_id?: string | null;
-  related_type?: 'order' | 'product' | 'promotion' | 'none' | 'cart' | null;
+  /** `return` / `refund` : réclamation ou remboursement (fonctions base44 du 2026-10-12). */
+  related_type?: 'order' | 'product' | 'promotion' | 'none' | 'cart' | 'return' | 'refund' | null;
   created_date?: string;
+  /** Posé par `dispatchPushNotifications` : la push serveur est partie. */
+  push_sent?: boolean | null;
+  /** Erreur d'envoi (Apple, Expo) : la notification locale prend alors le relais. */
+  push_error?: string | null;
 }
 
 /** Cf. schéma base44 `NotificationRead`. */
@@ -153,8 +161,27 @@ const HIDDEN_IDS_KEY = 'notifications_hidden_ids';
  * les notifications comme lues (elles le deviennent une à une, à l'appui).
  */
 const BADGE_SEEN_KEY = 'notifications_badge_seen_at';
-/** Notifications de retour déjà vues par l'appareil (pour n'alerter que sur du nouveau). */
+/** Ancienne clé (≤ 1.0.33) : retours déjà signalés. Remplacée par `ALERTED_IDS_KEY`. */
 const RETURN_SEEN_KEY = 'notifications_return_seen_ids';
+/** Éléments du fil déjà signalés par une notification de l'appareil. */
+const ALERTED_IDS_KEY = 'notifications_alerted_ids';
+/** Mémoire bornée, mais qui garde toujours tout le fil courant (pas de re-signalement). */
+const MAX_ALERTED_IDS = 2000;
+/** Au-delà, la salve est résumée en une dernière notification. */
+const MAX_ALERTS_PER_RUN = 4;
+
+/**
+ * Commandes et réclamations déjà annoncées par une `AppNotification`. Le fil ne
+ * relit que les `REMOTE_LIMIT` plus récentes : sans cette mémoire, chaque
+ * nouvelle notification poussait la plus ancienne hors de la fenêtre, et la
+ * commande qu'elle couvrait était re-dérivée puis signalée comme une nouveauté
+ * (« Votre commande a été annulée » pour une commande annulée un mois plus tôt,
+ * juste après une « Livraison manquée » — 2026-10-15).
+ */
+const COVERED_IDS_KEY = 'notifications_covered_ids';
+const MAX_COVERED_IDS = 2000;
+/** Compte auquel appartient l'état local ci-dessus (cf. `claimNotificationsState`). */
+const STATE_OWNER_KEY = 'notifications_state_owner';
 
 /** Au-delà, on purge les identifiants les plus anciens (état borné sur le disque). */
 const MAX_READ_IDS = 500;
@@ -272,6 +299,10 @@ const remoteKind = (n: AppNotificationRow): NotificationKind => {
       return 'promotion';
     case 'cart':
       return 'cart';
+    case 'return':
+      return 'return';
+    case 'refund':
+      return 'refund';
     default:
       break;
   }
@@ -289,6 +320,18 @@ const remoteKind = (n: AppNotificationRow): NotificationKind => {
     default:
       return 'custom';
   }
+};
+
+/**
+ * Statut d'une réclamation annoncé par une `AppNotification` (titres posés par
+ * la fonction base44 `createReturnStatusNotification`) : colore l'icône.
+ */
+const returnStatusFromTitle = (title = ''): string | undefined => {
+  const t = title.toLowerCase();
+  if (t.includes('refusée')) return 'rejected';
+  if (t.includes('terminée')) return 'completed';
+  if (t.includes('acceptée')) return 'approved';
+  return undefined;
 };
 
 /**
@@ -378,9 +421,10 @@ const persistDeleteOnServer = async (userEmail: string, notificationId: string) 
 let currentEmail: string | null = null;
 
 /**
- * Vide le cache local de lecture. Appelé au changement de compte : l'état
- * « lu » d'un client ne doit pas fuir sur le suivant. Le serveur
- * (`NotificationRead`) reste la source de vérité et réhydrate le cache.
+ * Vide le cache local de lecture. Appelé au changement de compte
+ * (`claimNotificationsState`) : l'état « lu » d'un client ne doit pas fuir sur
+ * le suivant. Le serveur (`NotificationRead`) reste la source de vérité et
+ * réhydrate le cache.
  */
 export const resetNotificationsReadCache = () => {
   persistReadIds([]);
@@ -390,45 +434,179 @@ export const resetNotificationsReadCache = () => {
   badgeSeenMs = 0;
   kv.remove(BADGE_SEEN_KEY);
   kv.remove(RETURN_SEEN_KEY);
+  kv.remove(ALERTED_IDS_KEY);
+  kv.remove(COVERED_IDS_KEY);
   emit();
 };
 
+/** Écran ouvert par l'appui sur la notification de l'appareil (cf. usePushNotifications). */
+const alertData = (item: NotificationItem): Record<string, unknown> => {
+  switch (item.kind) {
+    case 'order':
+      return item.orderId ? { relatedType: 'order', relatedId: item.orderId } : { relatedType: 'none' };
+    case 'return':
+      return { relatedType: 'return', relatedId: item.returnId };
+    case 'product':
+      return item.productId ? { relatedType: 'product', relatedId: item.productId } : { relatedType: 'none' };
+    case 'cart':
+      return { relatedType: 'cart' };
+    case 'refund':
+      return { relatedType: 'refund' };
+    default:
+      return { relatedType: 'none' };
+  }
+};
+
 /**
- * Alerte l'appareil (notification locale) quand une demande de retour change
- * de statut : l'admin ne pousse rien côté serveur pour les retours, c'est le
- * rafraîchissement du fil qui repère le changement. Au premier passage sur cet
- * appareil on mémorise l'existant sans alerter ; ensuite, chaque nouvel
- * identifiant `return:<id>:<statut>` non lu déclenche une notification.
+ * Un élément dérivé (statut de commande ou de réclamation lu sur base44) n'est
+ * signalé qu'après ce délai : le serveur crée entre-temps sa propre notification
+ * (envoyée en push), qui remplace l'élément dérivé — pas de doublon.
  */
-export const alertNewReturnNotifications = async (items: NotificationItem[]) => {
+const DERIVED_ALERT_GRACE_MS = 2 * 60_000;
+const isFreshDerived = (item: NotificationItem) =>
+  Boolean(item.derived) &&
+  (item.kind === 'order' || item.kind === 'return') &&
+  Date.now() - toMs(item.date) < DERIVED_ALERT_GRACE_MS;
+
+/**
+ * À signaler ? Pas une notification déjà poussée par le serveur, ni la
+ * commande que le client vient lui-même de passer (« enregistrée »).
+ */
+const deservesAlert = (item: NotificationItem) =>
+  !item.pushSent && !(item.kind === 'order' && item.derived && (item.orderStatus ?? 'pending') === 'pending');
+
+export interface AlertOptions {
+  /** Identifiants lus côté serveur (autre appareil) : rien à signaler pour eux. */
+  serverReadIds?: string[];
+  /**
+   * `false` si une source du fil a échoué : on n'établit alors pas la référence
+   * du premier passage (sinon tout l'historique serait signalé au suivant).
+   */
+  complete?: boolean;
+}
+
+let alertChain: Promise<unknown> = Promise.resolve();
+
+const runAlerts = async (
+  items: NotificationItem[],
+  { serverReadIds = [], complete = true }: AlertOptions,
+): Promise<NotificationItem[]> => {
   await hydrateReadState();
-  const current = items.filter((i) => i.kind === 'return').map((i) => i.id);
-  const stored = kv.get<string[]>(RETURN_SEEN_KEY);
+  if (serverReadIds.length && mergeReadIds(serverReadIds)) emit();
+
+  const visible = items.filter((i) => !hiddenIdSet.has(i.id));
+  // Trop récents pour être signalés : ni alerte ni mémorisation, ils seront
+  // revus au passage suivant (s'ils n'ont pas été remplacés d'ici là).
+  const deferred = new Set(visible.filter(isFreshDerived).map((i) => i.id));
+  const currentIds = visible.map((i) => i.id).filter((id) => !deferred.has(id));
+  const stored = kv.get<string[]>(ALERTED_IDS_KEY);
+
+  // Premier passage sur cet appareil (ou nouveau compte) : référence, sans alerte.
   if (!Array.isArray(stored)) {
-    kv.set(RETURN_SEEN_KEY, current);
+    if (complete) kv.set(ALERTED_IDS_KEY, currentIds.slice(-MAX_ALERTED_IDS));
     return [];
   }
+
   const seen = new Set(stored);
-  const fresh = items.filter((i) => i.kind === 'return' && !seen.has(i.id) && isUnread(i));
-  for (const item of fresh) {
-    void presentLocalNotification({
+  const fresh = visible
+    .filter((i) => !seen.has(i.id) && !deferred.has(i.id) && isUnread(i) && deservesAlert(i))
+    .sort((a, b) => toMs(b.date) - toMs(a.date));
+
+  // Rien de nouveau, tout le fil déjà mémorisé : aucune écriture disque.
+  if (fresh.length === 0 && currentIds.every((id) => seen.has(id))) return [];
+
+  // Mémorisé AVANT d'afficher : une vérification parallèle ne peut pas les
+  // signaler une seconde fois. Tout le fil courant est toujours conservé.
+  const currentSet = new Set(currentIds);
+  const older = stored.filter((id) => !currentSet.has(id));
+  const room = Math.max(0, MAX_ALERTED_IDS - currentIds.length);
+  kv.set(ALERTED_IDS_KEY, [...(room ? older.slice(-room) : []), ...currentIds]);
+
+  const individual = fresh.length > MAX_ALERTS_PER_RUN ? MAX_ALERTS_PER_RUN - 1 : fresh.length;
+  for (const item of fresh.slice(0, individual)) {
+    await presentLocalNotification({
       title: item.title,
       body: item.body,
-      data: { relatedType: 'return', relatedId: item.returnId },
+      data: alertData(item),
+      identifier: item.id,
     });
   }
-  const merged = [...new Set([...stored, ...current])];
-  kv.set(RETURN_SEEN_KEY, merged.length > MAX_READ_IDS ? merged.slice(-MAX_READ_IDS) : merged);
+  if (fresh.length > individual) {
+    const rest = fresh.length - individual;
+    await presentLocalNotification({
+      title: 'AfriGo',
+      body: rest > 1 ? `${rest} autres nouveautés vous attendent.` : 'Une autre nouveauté vous attend.',
+      data: { relatedType: 'none' },
+    });
+  }
   return fresh;
 };
 
-/** Supprime une notification du fil de ce client (masquée, jamais effacée du serveur). */
-export const deleteNotification = (id: string) => {
-  if (!id) return;
-  mergeReadIds([id]);
-  if (mergeHiddenIds([id])) emit();
-  if (currentEmail) void persistDeleteOnServer(currentEmail, id);
+/**
+ * Notification sur le téléphone pour chaque nouveauté du fil (2026-10-10) :
+ * notification de l'admin ou automatique (`AppNotification`), nouveau statut
+ * de commande ou de retour, réponse du service client. Appelée par le fil (app
+ * ouverte) et par la tâche d'arrière-plan (app fermée), sans rien côté
+ * serveur. Au premier passage sur l'appareil, ou pour un nouveau compte,
+ * l'existant est mémorisé sans alerter. Les appels sont mis en file : deux
+ * vérifications simultanées ne signalent jamais deux fois la même chose.
+ */
+export const alertNewNotifications = (
+  items: NotificationItem[],
+  options: AlertOptions = {},
+): Promise<NotificationItem[]> => {
+  const run = alertChain.then(() => runAlerts(items, options));
+  alertChain = run.catch(() => undefined);
+  return run;
 };
+
+const claimState = async (email: string) => {
+  await hydrateReadState();
+  const owner = kv.get<string>(STATE_OWNER_KEY);
+  if (owner === email) return;
+  if (owner) resetNotificationsReadCache();
+  kv.set(STATE_OWNER_KEY, email);
+};
+
+/**
+ * L'état local du fil (lu, supprimé, déjà signalé…) appartient à un compte.
+ * Un autre compte qui s'en sert repart de zéro — y compris après une
+ * déconnexion, où l'e-mail courant passe par `null` : avant, le nouveau compte
+ * héritait de l'état du précédent, et tout son fil, inconnu de la mémoire
+ * « déjà signalé », partait d'un coup en notifications. Le même compte qui se
+ * reconnecte garde son état. Mis dans la file des alertes : aucune
+ * vérification ne tourne avec l'état d'un autre compte.
+ */
+export const claimNotificationsState = (email: string): Promise<void> => {
+  const owner = email.trim().toLowerCase();
+  if (!owner) return Promise.resolve();
+  const run = alertChain.then(() => claimState(owner));
+  alertChain = run.catch(() => undefined);
+  return run;
+};
+
+/**
+ * Supprime des notifications du fil de ce client (masquées, jamais effacées du
+ * serveur) : masquées tout de suite, enregistrées sur base44 une à une
+ * (`NotificationRead.deleted`), et retirées du centre de notifications du
+ * téléphone.
+ */
+export const deleteNotifications = (ids: string[]) => {
+  const list = [...new Set(ids.filter(Boolean))];
+  if (list.length === 0) return;
+  mergeReadIds(list);
+  if (mergeHiddenIds(list)) emit();
+  void dismissPresentedNotifications(list);
+  const email = currentEmail;
+  if (email) {
+    void (async () => {
+      for (const id of list) await persistDeleteOnServer(email, id);
+    })();
+  }
+};
+
+/** Supprime une notification du fil de ce client. */
+export const deleteNotification = (id: string) => deleteNotifications([id]);
 
 /** Marque une notification précise comme lue (appui sur la ligne). */
 export const markNotificationRead = (id: string) => {
@@ -463,10 +641,14 @@ export const markAllNotificationsRead = (ids: string[] = []) => {
 
 // --- Lecture des sources ----------------------------------------------------
 
-const safe = async <T>(fn: () => Promise<T[] | undefined> | undefined): Promise<T[]> => {
+const safe = async <T>(
+  fn: () => Promise<T[] | undefined> | undefined,
+  failed?: { value: boolean },
+): Promise<T[]> => {
   try {
     return (await fn()) ?? [];
   } catch {
+    if (failed) failed.value = true;
     return [];
   }
 };
@@ -475,15 +657,18 @@ type EntityApi<T> = {
   filter?: (q: unknown, sort?: string, limit?: number) => Promise<T[]>;
 };
 
-const fetchAppNotifications = async (email: string): Promise<AppNotificationRow[]> => {
+const fetchAppNotifications = async (
+  email: string,
+  failed?: { value: boolean },
+): Promise<AppNotificationRow[]> => {
   const api = AppNotification() as unknown as EntityApi<AppNotificationRow>;
   if (typeof api?.filter !== 'function') return [];
 
   // Base44 ne sait pas exprimer un OU : on fait deux requêtes puis on fusionne.
   // `target_emails` est un tableau — le filtre se comporte en « contient ».
   const [mine, broadcast] = await Promise.all([
-    safe(() => api.filter!({ target_emails: email }, '-created_date', REMOTE_LIMIT)),
-    safe(() => api.filter!({ target_audience: 'all' }, '-created_date', REMOTE_LIMIT)),
+    safe(() => api.filter!({ target_emails: email }, '-created_date', REMOTE_LIMIT), failed),
+    safe(() => api.filter!({ target_audience: 'all' }, '-created_date', REMOTE_LIMIT), failed),
   ]);
 
   const byId = new Map<string, AppNotificationRow>();
@@ -496,13 +681,66 @@ const fetchAppNotifications = async (email: string): Promise<AppNotificationRow[
 const fetchReadState = async (email: string): Promise<NotificationReadRow[]> => {
   const api = NotificationRead() as unknown as EntityApi<NotificationReadRow>;
   if (typeof api?.filter !== 'function') return [];
-  return safe(() => api.filter!({ user_email: email }, '-created_date', 500));
+  // Les suppressions sont relues à part : avec les 500 lignes les plus récentes
+  // seulement, une notification supprimée depuis longtemps pouvait revenir.
+  const [recent, deleted] = await Promise.all([
+    safe(() => api.filter!({ user_email: email }, '-created_date', 500)),
+    safe(() => api.filter!({ user_email: email, deleted: true }, '-created_date', 1000)),
+  ]);
+  const byId = new Map<string, NotificationReadRow>();
+  for (const row of [...recent, ...deleted]) if (row?.id) byId.set(row.id, row);
+  return [...byId.values()];
+};
+
+/**
+ * Rappels de panier (« Vous avez oublié votre panier », « article bientôt en
+ * rupture ») : base44 en recrée un toutes les quelques heures tant que le
+ * panier reste plein. Seul le plus récent de chaque sorte est gardé, et s'il a
+ * été supprimé, les plus anciens ne reviennent pas à sa place.
+ */
+const collapseRepeatedReminders = (rows: AppNotificationRow[]): AppNotificationRow[] => {
+  const seen = new Set<string>();
+  return [...rows]
+    .sort((a, b) => toMs(b.created_date) - toMs(a.created_date))
+    .filter((n) => {
+      if (n.type !== 'cart_reminder') return true;
+      const key = `cart_reminder|${n.related_id ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+};
+
+/** `order:<id>` / `return:<id>` de chaque commande ou réclamation annoncée par le serveur. */
+const coverageOf = (notifications: AppNotificationRow[]): string[] =>
+  notifications
+    .filter((n) => (n.related_type === 'order' || n.related_type === 'return') && n.related_id)
+    .map((n) => `${n.related_type}:${n.related_id}`);
+
+/**
+ * Ajoute les annonces de ce passage à la mémoire `COVERED_IDS_KEY` et renvoie
+ * le tout : une commande annoncée une fois le reste, même quand sa
+ * notification sort de la fenêtre des `REMOTE_LIMIT` dernières.
+ */
+const rememberCoverage = (ids: string[]): Set<string> => {
+  const stored = kv.get<string[]>(COVERED_IDS_KEY);
+  const known = Array.isArray(stored) ? stored.filter((v) => typeof v === 'string') : [];
+  const covered = new Set(known);
+  const added = [...new Set(ids)].filter((id) => !covered.has(id));
+  if (added.length) {
+    const next = [...known, ...added];
+    kv.set(COVERED_IDS_KEY, next.length > MAX_COVERED_IDS ? next.slice(-MAX_COVERED_IDS) : next);
+    added.forEach((id) => covered.add(id));
+  }
+  return covered;
 };
 
 interface FeedPayload {
   items: NotificationItem[];
   /** Identifiants marqués lus côté serveur, à fusionner dans le cache local. */
   serverReadIds: string[];
+  /** Toutes les sources ont répondu (sinon le fil est partiel). */
+  complete?: boolean;
 }
 
 /** Texte de la notification de retour selon le statut (mêmes mots que « Mes retours »). */
@@ -541,6 +779,8 @@ const buildFeed = (
   messages: MessageRow[],
   reads: NotificationReadRow[],
   returns: ReturnRow[] = [],
+  /** Commandes / réclamations annoncées par le serveur (cf. `rememberCoverage`). */
+  covered: ReadonlySet<string> = new Set(coverageOf(notifications)),
 ): FeedPayload => {
   const hidden = new Set(
     reads.filter((r) => r.deleted && r.notification_id).map((r) => r.notification_id as string),
@@ -549,7 +789,7 @@ const buildFeed = (
     .filter((r) => r.is_read && r.notification_id)
     .map((r) => r.notification_id as string);
 
-  const remoteItems: NotificationItem[] = notifications
+  const remoteItems: NotificationItem[] = collapseRepeatedReminders(notifications)
     .filter((n) => !hidden.has(n.id))
     .map((n) => {
       const kind = remoteKind(n);
@@ -561,21 +801,18 @@ const buildFeed = (
         date: n.created_date ?? null,
         orderId: kind === 'order' ? (n.related_id ?? undefined) : undefined,
         productId: kind === 'product' ? (n.related_id ?? undefined) : undefined,
+        returnId: kind === 'return' ? (n.related_id ?? undefined) : undefined,
+        returnStatus: kind === 'return' ? returnStatusFromTitle(n.title) : undefined,
         imageUrl: n.image_url ?? n.images?.[0],
+        pushSent: (n.push_sent === true && !n.push_error) || undefined,
         unread: false,
       };
     });
 
   // Les commandes déjà couvertes par une notification `delivery_status` ne sont
   // pas re-dérivées : sinon la même livraison apparaîtrait deux fois.
-  const ordersCoveredRemotely = new Set(
-    notifications
-      .filter((n) => n.related_type === 'order' && n.related_id)
-      .map((n) => n.related_id as string),
-  );
-
   const orderItems: NotificationItem[] = orders
-    .filter((o) => !ordersCoveredRemotely.has(o.id))
+    .filter((o) => !covered.has(`order:${o.id}`))
     .map((o) => ({
       id: `order:${o.id}:${o.status ?? 'pending'}`,
       kind: 'order',
@@ -593,7 +830,9 @@ const buildFeed = (
    * (l'identifiant inclut le statut, donc « approuvée » puis « terminée »
    * donnent deux notifications, chacune non lue à son tour).
    */
-  const returnItems: NotificationItem[] = returns.map((r) => ({
+  // Réclamations déjà annoncées par le serveur (notification + push) : on ne
+  // les re-dérive pas, sinon chaque changement de statut apparaîtrait deux fois.
+  const returnItems: NotificationItem[] = returns.filter((r) => !covered.has(`return:${r.id}`)).map((r) => ({
     id: `return:${r.id}:${r.status ?? 'pending'}`,
     kind: 'return',
     title: `Retour · commande ${r.order_id ? orderLabel(r.order_id) : ''}`.trim(),
@@ -626,39 +865,73 @@ const buildFeed = (
 };
 
 /**
+ * Charge le fil d'un compte (toutes les sources). Partagé par le hook (app
+ * ouverte) et la tâche d'arrière-plan (app fermée). Volontairement tolérant :
+ * si une source échoue (droits, réseau), on retourne simplement les autres.
+ */
+export const loadNotificationsFeed = async (email: string): Promise<FeedPayload> => {
+  const failed = { value: false };
+  // État local de ce compte (vidé s'il appartenait à un autre) avant d'y écrire.
+  const claimed = claimNotificationsState(email);
+  const [notifications, orders, messages, reads, returns] = await Promise.all([
+    fetchAppNotifications(email, failed),
+    safe(() => (Order() as unknown as EntityApi<OrderRow>).filter?.({ customer_email: email }), failed),
+    safe(
+      () => (Message() as unknown as EntityApi<MessageRow>).filter?.({ customer_email: email }),
+      failed,
+    ),
+    fetchReadState(email),
+    safe(() => (Return() as unknown as EntityApi<ReturnRow>).filter?.({ customer_email: email }), failed),
+  ]);
+  await claimed;
+  const covered = rememberCoverage(coverageOf(notifications));
+  return {
+    ...buildFeed(notifications, orders, messages, reads, returns, covered),
+    complete: !failed.value,
+  };
+};
+
+/** Compte dans la bulle : non lue, arrivée après la dernière ouverture de l'écran. */
+const countsInBadge = (item: { unread: boolean; date: string | null }) => {
+  if (!item.unread) return false;
+  const ms = toMs(item.date);
+  return ms > 0 ? ms > badgeSeenMs : badgeSeenMs === 0;
+};
+
+/** Pastille de l'icône calculée hors écran (tâche d'arrière-plan). */
+export const computeBadgeCount = async (items: NotificationItem[]): Promise<number> => {
+  await hydrateReadState();
+  return items
+    .filter((i) => !hiddenIdSet.has(i.id))
+    .filter((i) => countsInBadge({ unread: isUnread(i), date: i.date })).length;
+};
+
+/**
  * Fil de notifications + compteur non lus. Volontairement tolérant : si une
  * source échoue (droits, réseau), on retourne simplement les autres.
  */
+/** Fils déjà passés à `alertNewNotifications` (un même fil est partagé par tous les écrans). */
+const alertedPayloads = new WeakSet<object>();
+
 export const useNotificationsFeed = () => {
   const { user } = useAuth();
   const email = user?.email;
   const queryClient = useQueryClient();
   const readVersion = useSyncExternalStore(subscribe, getVersion, getVersion);
 
+  // Avant toute alerte : un fil déjà en cache (reconnexion dans la même
+  // session) ne doit pas être comparé à l'état d'un autre compte.
   useEffect(() => {
-    const previous = currentEmail;
     currentEmail = email ?? null;
-    if (previous && email && previous !== email) resetNotificationsReadCache();
+    if (email) void claimNotificationsState(email);
   }, [email]);
 
   const query = useQuery<FeedPayload>({
     queryKey: ['notificationsFeed', email],
     enabled: Boolean(email),
-    refetchInterval: 60_000,
-    queryFn: async () => {
-      const [notifications, orders, messages, reads, returns] = await Promise.all([
-        fetchAppNotifications(email as string),
-        safe(() => (Order() as unknown as EntityApi<OrderRow>).filter?.({ customer_email: email })),
-        safe(() =>
-          (Message() as unknown as EntityApi<MessageRow>).filter?.({ customer_email: email }),
-        ),
-        fetchReadState(email as string),
-        safe(() =>
-          (Return() as unknown as EntityApi<ReturnRow>).filter?.({ customer_email: email }),
-        ),
-      ]);
-      return buildFeed(notifications, orders, messages, reads, returns);
-    },
+    // 30 s app ouverte (les push du serveur, elles, arrivent tout de suite).
+    refetchInterval: 30_000,
+    queryFn: () => loadNotificationsFeed(email as string),
   });
 
   const data = query.data;
@@ -668,9 +941,17 @@ export const useNotificationsFeed = () => {
     if (data?.serverReadIds?.length && mergeReadIds(data.serverReadIds)) emit();
   }, [data]);
 
-  // Changement de statut d'un retour → notification sur l'appareil.
+  // Nouveauté dans le fil → notification sur le téléphone (bannière si l'app
+  // est ouverte ; la tâche d'arrière-plan fait de même app fermée).
   useEffect(() => {
-    if (data?.items?.length) void alertNewReturnNotifications(data.items);
+    // Plusieurs écrans utilisent ce hook : le même fil n'est vérifié qu'une fois.
+    if (data && !alertedPayloads.has(data)) {
+      alertedPayloads.add(data);
+      void alertNewNotifications(data.items, {
+        serverReadIds: data.serverReadIds,
+        complete: data.complete !== false,
+      });
+    }
   }, [data]);
 
   const items = useMemo(
@@ -693,12 +974,7 @@ export const useNotificationsFeed = () => {
    * l'écran. Une date illisible compte tant que l'écran n'a jamais été ouvert.
    */
   const badgeCount = useMemo(
-    () =>
-      items.filter((i) => {
-        if (!i.unread) return false;
-        const ms = toMs(i.date);
-        return ms > 0 ? ms > badgeSeenMs : badgeSeenMs === 0;
-      }).length,
+    () => items.filter(countsInBadge).length,
     // `readVersion` : `badgeSeenMs` change sans que `items` change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [items, readVersion],
