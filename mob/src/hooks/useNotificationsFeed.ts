@@ -62,6 +62,8 @@ export interface NotificationItem {
    * plancher de migration `readBeforeMs`.
    */
   derived?: boolean;
+  /** Déjà poussée par le serveur (`AppNotification.push_sent`) : pas de doublon local. */
+  pushSent?: boolean;
   unread: boolean;
 }
 
@@ -159,8 +161,27 @@ const HIDDEN_IDS_KEY = 'notifications_hidden_ids';
  * les notifications comme lues (elles le deviennent une à une, à l'appui).
  */
 const BADGE_SEEN_KEY = 'notifications_badge_seen_at';
-/** Notifications de retour déjà vues par l'appareil (pour n'alerter que sur du nouveau). */
+/** Ancienne clé (≤ 1.0.33) : retours déjà signalés. Remplacée par `ALERTED_IDS_KEY`. */
 const RETURN_SEEN_KEY = 'notifications_return_seen_ids';
+/** Éléments du fil déjà signalés par une notification de l'appareil. */
+const ALERTED_IDS_KEY = 'notifications_alerted_ids';
+/** Mémoire bornée, mais qui garde toujours tout le fil courant (pas de re-signalement). */
+const MAX_ALERTED_IDS = 2000;
+/** Au-delà, la salve est résumée en une dernière notification. */
+const MAX_ALERTS_PER_RUN = 4;
+
+/**
+ * Commandes et réclamations déjà annoncées par une `AppNotification`. Le fil ne
+ * relit que les `REMOTE_LIMIT` plus récentes : sans cette mémoire, chaque
+ * nouvelle notification poussait la plus ancienne hors de la fenêtre, et la
+ * commande qu'elle couvrait était re-dérivée puis signalée comme une nouveauté
+ * (« Votre commande a été annulée » pour une commande annulée un mois plus tôt,
+ * juste après une « Livraison manquée » — 2026-10-15).
+ */
+const COVERED_IDS_KEY = 'notifications_covered_ids';
+const MAX_COVERED_IDS = 2000;
+/** Compte auquel appartient l'état local ci-dessus (cf. `claimNotificationsState`). */
+const STATE_OWNER_KEY = 'notifications_state_owner';
 
 /** Au-delà, on purge les identifiants les plus anciens (état borné sur le disque). */
 const MAX_READ_IDS = 500;
@@ -299,6 +320,18 @@ const remoteKind = (n: AppNotificationRow): NotificationKind => {
     default:
       return 'custom';
   }
+};
+
+/**
+ * Statut d'une réclamation annoncé par une `AppNotification` (titres posés par
+ * la fonction base44 `createReturnStatusNotification`) : colore l'icône.
+ */
+const returnStatusFromTitle = (title = ''): string | undefined => {
+  const t = title.toLowerCase();
+  if (t.includes('refusée')) return 'rejected';
+  if (t.includes('terminée')) return 'completed';
+  if (t.includes('acceptée')) return 'approved';
+  return undefined;
 };
 
 /**
@@ -506,13 +539,66 @@ const fetchAppNotifications = async (email: string): Promise<AppNotificationRow[
 const fetchReadState = async (email: string): Promise<NotificationReadRow[]> => {
   const api = NotificationRead() as unknown as EntityApi<NotificationReadRow>;
   if (typeof api?.filter !== 'function') return [];
-  return safe(() => api.filter!({ user_email: email }, '-created_date', 500));
+  // Les suppressions sont relues à part : avec les 500 lignes les plus récentes
+  // seulement, une notification supprimée depuis longtemps pouvait revenir.
+  const [recent, deleted] = await Promise.all([
+    safe(() => api.filter!({ user_email: email }, '-created_date', 500)),
+    safe(() => api.filter!({ user_email: email, deleted: true }, '-created_date', 1000)),
+  ]);
+  const byId = new Map<string, NotificationReadRow>();
+  for (const row of [...recent, ...deleted]) if (row?.id) byId.set(row.id, row);
+  return [...byId.values()];
+};
+
+/**
+ * Rappels de panier (« Vous avez oublié votre panier », « article bientôt en
+ * rupture ») : base44 en recrée un toutes les quelques heures tant que le
+ * panier reste plein. Seul le plus récent de chaque sorte est gardé, et s'il a
+ * été supprimé, les plus anciens ne reviennent pas à sa place.
+ */
+const collapseRepeatedReminders = (rows: AppNotificationRow[]): AppNotificationRow[] => {
+  const seen = new Set<string>();
+  return [...rows]
+    .sort((a, b) => toMs(b.created_date) - toMs(a.created_date))
+    .filter((n) => {
+      if (n.type !== 'cart_reminder') return true;
+      const key = `cart_reminder|${n.related_id ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+};
+
+/** `order:<id>` / `return:<id>` de chaque commande ou réclamation annoncée par le serveur. */
+const coverageOf = (notifications: AppNotificationRow[]): string[] =>
+  notifications
+    .filter((n) => (n.related_type === 'order' || n.related_type === 'return') && n.related_id)
+    .map((n) => `${n.related_type}:${n.related_id}`);
+
+/**
+ * Ajoute les annonces de ce passage à la mémoire `COVERED_IDS_KEY` et renvoie
+ * le tout : une commande annoncée une fois le reste, même quand sa
+ * notification sort de la fenêtre des `REMOTE_LIMIT` dernières.
+ */
+const rememberCoverage = (ids: string[]): Set<string> => {
+  const stored = kv.get<string[]>(COVERED_IDS_KEY);
+  const known = Array.isArray(stored) ? stored.filter((v) => typeof v === 'string') : [];
+  const covered = new Set(known);
+  const added = [...new Set(ids)].filter((id) => !covered.has(id));
+  if (added.length) {
+    const next = [...known, ...added];
+    kv.set(COVERED_IDS_KEY, next.length > MAX_COVERED_IDS ? next.slice(-MAX_COVERED_IDS) : next);
+    added.forEach((id) => covered.add(id));
+  }
+  return covered;
 };
 
 interface FeedPayload {
   items: NotificationItem[];
   /** Identifiants marqués lus côté serveur, à fusionner dans le cache local. */
   serverReadIds: string[];
+  /** Toutes les sources ont répondu (sinon le fil est partiel). */
+  complete?: boolean;
 }
 
 /** Texte de la notification de retour selon le statut (mêmes mots que « Mes retours »). */
@@ -551,6 +637,8 @@ const buildFeed = (
   messages: MessageRow[],
   reads: NotificationReadRow[],
   returns: ReturnRow[] = [],
+  /** Commandes / réclamations annoncées par le serveur (cf. `rememberCoverage`). */
+  covered: ReadonlySet<string> = new Set(coverageOf(notifications)),
 ): FeedPayload => {
   const hidden = new Set(
     reads.filter((r) => r.deleted && r.notification_id).map((r) => r.notification_id as string),
@@ -559,7 +647,7 @@ const buildFeed = (
     .filter((r) => r.is_read && r.notification_id)
     .map((r) => r.notification_id as string);
 
-  const remoteItems: NotificationItem[] = notifications
+  const remoteItems: NotificationItem[] = collapseRepeatedReminders(notifications)
     .filter((n) => !hidden.has(n.id))
     .map((n) => {
       const kind = remoteKind(n);
@@ -571,21 +659,18 @@ const buildFeed = (
         date: n.created_date ?? null,
         orderId: kind === 'order' ? (n.related_id ?? undefined) : undefined,
         productId: kind === 'product' ? (n.related_id ?? undefined) : undefined,
+        returnId: kind === 'return' ? (n.related_id ?? undefined) : undefined,
+        returnStatus: kind === 'return' ? returnStatusFromTitle(n.title) : undefined,
         imageUrl: n.image_url ?? n.images?.[0],
+        pushSent: (n.push_sent === true && !n.push_error) || undefined,
         unread: false,
       };
     });
 
   // Les commandes déjà couvertes par une notification `delivery_status` ne sont
   // pas re-dérivées : sinon la même livraison apparaîtrait deux fois.
-  const ordersCoveredRemotely = new Set(
-    notifications
-      .filter((n) => n.related_type === 'order' && n.related_id)
-      .map((n) => n.related_id as string),
-  );
-
   const orderItems: NotificationItem[] = orders
-    .filter((o) => !ordersCoveredRemotely.has(o.id))
+    .filter((o) => !covered.has(`order:${o.id}`))
     .map((o) => ({
       id: `order:${o.id}:${o.status ?? 'pending'}`,
       kind: 'order',
@@ -603,7 +688,9 @@ const buildFeed = (
    * (l'identifiant inclut le statut, donc « approuvée » puis « terminée »
    * donnent deux notifications, chacune non lue à son tour).
    */
-  const returnItems: NotificationItem[] = returns.map((r) => ({
+  // Réclamations déjà annoncées par le serveur (notification + push) : on ne
+  // les re-dérive pas, sinon chaque changement de statut apparaîtrait deux fois.
+  const returnItems: NotificationItem[] = returns.filter((r) => !covered.has(`return:${r.id}`)).map((r) => ({
     id: `return:${r.id}:${r.status ?? 'pending'}`,
     kind: 'return',
     title: `Retour · commande ${r.order_id ? orderLabel(r.order_id) : ''}`.trim(),
