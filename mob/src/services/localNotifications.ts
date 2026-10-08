@@ -34,3 +34,26 @@ export const presentLocalNotification = async ({ title, body, data, identifier }
     /* permission refusée, simulateur… : le fil in-app reste la référence */
   }
 };
+
+/**
+ * Retire du centre de notifications du téléphone celles qui correspondent à
+ * ces éléments du fil : notifications locales (même identifiant) et push du
+ * serveur (`data.notificationId`). Appelé quand le client les supprime dans
+ * l'app, pour qu'elles ne restent pas affichées sur le téléphone.
+ */
+export const dismissPresentedNotifications = async (ids: string[]): Promise<void> => {
+  if (ids.length === 0) return;
+  try {
+    const wanted = new Set(ids);
+    const presented = (await Notifications.getPresentedNotificationsAsync?.()) ?? [];
+    for (const n of presented) {
+      const identifier = n?.request?.identifier;
+      const notificationId = (n?.request?.content?.data as { notificationId?: unknown } | undefined)?.notificationId;
+      if ((identifier && wanted.has(identifier)) || (typeof notificationId === 'string' && wanted.has(notificationId))) {
+        await Notifications.dismissNotificationAsync(identifier);
+      }
+    }
+  } catch {
+    /* centre de notifications indisponible : sans incidence sur le fil */
+  }
+};
