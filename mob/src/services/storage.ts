@@ -16,6 +16,17 @@ const KV_ASYNC_PREFIX = '__afrigo_kv__:';
 
 const memoryKvCache = new Map<string, string>();
 
+/**
+ * Écritures disque en cours : `kv.flush()` les attend. Indispensable en tâche
+ * d'arrière-plan, que le système peut arrêter dès qu'elle se termine — une
+ * écriture non terminée y était perdue (notification de nouveau signalée).
+ */
+const pendingWrites = new Set<Promise<unknown>>();
+const track = (p: Promise<unknown>) => {
+  const tracked = p.catch(() => undefined).finally(() => pendingWrites.delete(tracked));
+  pendingWrites.add(tracked);
+};
+
 function parseStored<T>(raw: string): T | null {
   try {
     return JSON.parse(raw) as T;
@@ -59,21 +70,25 @@ export const kv = {
   set: (key: string, value: unknown): void => {
     if (value == null) {
       memoryKvCache.delete(key);
-      void AsyncStorage.removeItem(KV_ASYNC_PREFIX + key);
+      track(AsyncStorage.removeItem(KV_ASYNC_PREFIX + key));
       return;
     }
     const s = serializeValue(value);
     if (s == null) {
       memoryKvCache.delete(key);
-      void AsyncStorage.removeItem(KV_ASYNC_PREFIX + key);
+      track(AsyncStorage.removeItem(KV_ASYNC_PREFIX + key));
       return;
     }
     memoryKvCache.set(key, s);
-    void AsyncStorage.setItem(KV_ASYNC_PREFIX + key, s);
+    track(AsyncStorage.setItem(KV_ASYNC_PREFIX + key, s));
   },
   remove: (key: string): void => {
     memoryKvCache.delete(key);
-    void AsyncStorage.removeItem(KV_ASYNC_PREFIX + key);
+    track(AsyncStorage.removeItem(KV_ASYNC_PREFIX + key));
+  },
+  /** Attend que toutes les écritures disque lancées soient terminées. */
+  flush: async (): Promise<void> => {
+    while (pendingWrites.size > 0) await Promise.all([...pendingWrites]);
   },
   clear: (): void => {
     memoryKvCache.clear();
