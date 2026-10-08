@@ -32,7 +32,6 @@ export const configureNotificationHandler = () => {
   handlerConfigured = true;
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
       shouldShowBanner: true,
       shouldShowList: true,
       shouldPlaySound: true,
