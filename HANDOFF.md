@@ -297,6 +297,35 @@ appareil à l'autre ; un cache local (`kv`) le double pour un affichage instanta
 et hors ligne. Quitter l'onglet 🔔 marque tout comme lu (badge à zéro). La
 suppression par le client écrit `NotificationRead.deleted = true` (comme le
 web) : la ligne `AppNotification`, partagée, n'est jamais effacée.
+**Mode par défaut : aucune action sur base44 (2026-10-10).** L'app affiche
+elle-même une vraie notification système pour chaque nouveauté du fil
+(`AppNotification` créée par l'admin ou automatiquement, nouveau statut de
+commande ou de retour, réponse du service client) :
+
+- app ouverte : le fil est relu toutes les 30 s, et aussitôt au retour dans
+  l'app ; chaque nouveauté produit une bannière (`alertNewNotifications` dans
+  `useNotificationsFeed.ts`, une seule vérification par chargement même si
+  plusieurs écrans lisent le fil) ;
+- app en arrière-plan ou fermée : `mob/src/services/backgroundNotifications.ts`
+  (`expo-background-fetch` + `expo-task-manager`) — le téléphone réveille
+  l'app, qui relit le fil et affiche les notifications. Inscrite à la
+  connexion, retirée à la déconnexion ;
+- jamais deux fois la même (mémoire `notifications_alerted_ids`, appels en
+  file) ; au premier passage sur un appareil l'existant est mémorisé sans
+  alerte ; rien pour ce qui est déjà lu ailleurs, ni pour la commande que le
+  client vient de passer ; une salve est résumée.
+
+Limites (Apple / Google) : le rythme est décidé par le système — au mieux
+toutes les 15 min, souvent moins sur iPhone ; sur iPhone rien ne tourne après
+une fermeture forcée (app balayée vers le haut) ou si « Actualisation en
+arrière-plan » est coupée (Paramètres → Notifications le signale). Ne pas
+ajouter `BGTaskSchedulerPermittedIdentifiers` à l'Info.plist (ex.
+`expo-background-task`) : iOS couperait alors cette actualisation.
+
+Pour des push **instantanées** app fermée, il faut un envoi serveur : c'est la
+chaîne ci-dessous, prête mais facultative (les deux voies ne font pas doublon
+grâce à `push_sent`).
+
 
 **Chaîne push** (app fermée / écran verrouillé) :
 
