@@ -14,6 +14,7 @@ import { kv, STORAGE_KEYS } from '@/services/storage';
 import { syncCartWithServerAfterLogin } from '@/services/cartServerSync';
 import { useCart } from '@/stores/cart';
 import { invokeFunction } from '@/api/entities';
+import { unregisterPushToken } from '@/services/pushNotifications';
 import {
   getAppleSignInPayload,
   getGoogleSignInPayload,
@@ -409,6 +410,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [checkUserAuth]);
 
   const logout = useCallback(async () => {
+    // Jetons push retirés du profil AVANT de couper la session : après
+    // setBase44Token(null), l'appel partirait sans authentification et le
+    // téléphone continuerait de recevoir les push de ce compte. 3 s au plus,
+    // pour ne jamais bloquer une déconnexion hors connexion.
+    await Promise.race([
+      unregisterPushToken().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 3000)),
+    ]);
     try {
       await getBase44().auth.logout();
     } catch {
