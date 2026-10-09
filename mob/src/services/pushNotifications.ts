@@ -66,13 +66,18 @@ const projectId = (): string | undefined => {
 
 export type PushPermissionResult = 'granted' | 'denied' | 'unsupported';
 
-/** Demande la permission (idempotent : ne re-demande pas si déjà accordée). */
-export const requestPushPermission = async (): Promise<PushPermissionResult> => {
+/**
+ * Demande la permission (idempotent : ne re-demande pas si déjà accordée).
+ * `prompt: false` se contente de lire l'état, sans jamais afficher la demande.
+ */
+export const requestPushPermission = async (
+  { prompt = true }: { prompt?: boolean } = {},
+): Promise<PushPermissionResult> => {
   if (!Device.isDevice) return 'unsupported';
   try {
     const current = await Notifications.getPermissionsAsync();
     if (current.granted || current.status === 'granted') return 'granted';
-    if (!current.canAskAgain) return 'denied';
+    if (!prompt || !current.canAskAgain) return 'denied';
     const asked = await Notifications.requestPermissionsAsync({
       ios: { allowAlert: true, allowBadge: true, allowSound: true },
     });
