@@ -10,18 +10,43 @@
       ],
       "default": "user"
     },
-    "cash_on_delivery_disabled": {
-      "type": "boolean",
-      "description": "Paiement a la livraison interdit pour ce client (admin > Paiement a la livraison)",
-      "default": false
-    },
     "privacy_policy_accepted_version": {
       "type": "string",
-      "description": "Version de la politique de confidentialit\u00e9 accept\u00e9e"
+      "description": "Version de la politique de confidentialité acceptée"
     },
     "privacy_policy_accepted_at": {
       "type": "string",
-      "description": "Date d'acceptation de la politique de confidentialit\u00e9"
+      "description": "Date d'acceptation de la politique de confidentialité"
+    },
+    "cash_on_delivery_disabled": {
+      "type": "boolean",
+      "description": "Paiement à la livraison désactivé pour ce client",
+      "default": false
+    },
+    "expo_push_token": {
+      "type": "string",
+      "description": "Jeton Expo du téléphone (ExponentPushToken[…]), écrit par l'app mobile"
+    },
+    "apns_device_token": {
+      "type": "string",
+      "description": "Jeton APNs de l'iPhone (hexadécimal), pour un envoi direct par Apple"
+    },
+    "push_platform": {
+      "type": "string",
+      "description": "ios ou android"
+    },
+    "push_token_updated_at": {
+      "type": "string",
+      "description": "Dernière inscription des jetons push"
+    },
+    "push_enabled": {
+      "type": "boolean",
+      "description": "false après déconnexion : plus aucune push pour ce compte sur ce téléphone",
+      "default": true
     }
-  }
+  },
+  "required": [
+    "privacy_policy_accepted_version",
+    "privacy_policy_accepted_at"
+  ]
 }
