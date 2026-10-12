@@ -1,0 +1,57 @@
+{
+  "name": "NotificationTemplate",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "confirmed",
+        "preparing",
+        "ready",
+        "shipped",
+        "delivered",
+        "cancelled",
+        "failed_delivery",
+        "not_delivered"
+      ],
+      "description": "Statut de commande"
+    },
+    "subject": {
+      "type": "string",
+      "description": "Objet du message (variables: {customer_name}, {order_id}, {order_number})"
+    },
+    "email_body": {
+      "type": "string",
+      "description": "Contenu du message email (variables: {customer_name}, {order_id}, {order_number}, {delivery_address})"
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Template actif",
+      "default": true
+    }
+  },
+  "required": [
+    "status",
+    "subject",
+    "email_body"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

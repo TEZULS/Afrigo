@@ -1,0 +1,232 @@
+{
+  "name": "Order",
+  "type": "object",
+  "properties": {
+    "customer_email": {
+      "type": "string",
+      "description": "Email du client"
+    },
+    "items": {
+      "type": "array",
+      "description": "Produits command\u00e9s",
+      "items": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string"
+          },
+          "product_name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unit_price": {
+            "type": "number"
+          },
+          "total_price": {
+            "type": "number"
+          },
+          "vat_rate": {
+            "type": "number",
+            "description": "Taux de TVA du produit au moment de la commande (%)",
+            "default": 0
+          },
+          "selected_variants": {
+            "type": "object",
+            "description": "Variantes s\u00e9lectionn\u00e9es du produit"
+          }
+        }
+      }
+    },
+    "total_amount": {
+      "type": "number",
+      "description": "Montant total"
+    },
+    "payment_method": {
+      "type": "string",
+      "enum": [
+        "card",
+        "delivery"
+      ],
+      "description": "Moyen de paiement (carte ou livraison)"
+    },
+    "payment_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "completed",
+        "failed",
+        "abandoned"
+      ],
+      "default": "pending",
+      "description": "Statut du paiement"
+    },
+    "payment_failure_reason": {
+      "type": "string",
+      "description": "Raison de l'\u00e9chec du paiement"
+    },
+    "wallet_amount_used": {
+      "type": "number",
+      "default": 0,
+      "description": "Montant utilis\u00e9 du portefeuille"
+    },
+    "promo_code": {
+      "type": "string",
+      "description": "Code promo appliqu\u00e9"
+    },
+    "promo_discount": {
+      "type": "number",
+      "default": 0,
+      "description": "Montant de la r\u00e9duction du code promo"
+    },
+    "amount_to_pay": {
+      "type": "number",
+      "description": "Montant restant \u00e0 payer"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "confirmed",
+        "preparing",
+        "ready",
+        "assigned",
+        "shipped",
+        "delivered",
+        "cancelled",
+        "failed_delivery",
+        "not_delivered"
+      ],
+      "default": "pending",
+      "description": "Statut de la commande"
+    },
+    "delivery_address": {
+      "type": "string",
+      "description": "Adresse de livraison compl\u00e8te"
+    },
+    "delivery_postal_code": {
+      "type": "string"
+    },
+    "delivery_city": {
+      "type": "string"
+    },
+    "delivery_lat": {
+      "type": "number",
+      "description": "Latitude pour g\u00e9olocalisation"
+    },
+    "delivery_lng": {
+      "type": "number",
+      "description": "Longitude pour g\u00e9olocalisation"
+    },
+    "estimated_delivery": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de livraison souhait\u00e9e"
+    },
+    "delivery_time": {
+      "type": "string",
+      "description": "Heure de livraison souhait\u00e9e (ex: 09:00)"
+    },
+    "delivery_time_slot": {
+      "type": "string",
+      "description": "Cr\u00e9neau horaire de livraison s\u00e9lectionn\u00e9 (ex: 09:00-10:00)"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Notes de livraison"
+    },
+    "delivered_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Date et heure de livraison effective"
+    },
+    "assigned_deliverer": {
+      "type": "string",
+      "description": "Email du livreur assign\u00e9"
+    },
+    "delivery_failure_reason": {
+      "type": "string",
+      "description": "Motif d'\u00e9chec de livraison ou de non-livraison"
+    },
+    "cash_collected": {
+      "type": "number",
+      "description": "Montant en esp\u00e8ces collect\u00e9 par le livreur",
+      "default": 0
+    },
+    "cancellation_reason": {
+      "type": "string",
+      "description": "Motif d'annulation de la commande"
+    },
+    "cancelled_by": {
+      "type": "string",
+      "description": "Email de la personne qui a annul\u00e9 (admin ou client)"
+    },
+    "cancelled_by_role": {
+      "type": "string",
+      "enum": [
+        "client",
+        "admin"
+      ],
+      "description": "R\u00f4le de la personne qui a annul\u00e9"
+    },
+    "delivery_code": {
+      "type": "string",
+      "description": "Code de validation de livraison \u00e0 4 chiffres (communiqu\u00e9 au client, saisi par le livreur pour valider la livraison)"
+    }
+  },
+  "required": [
+    "customer_email",
+    "items",
+    "total_amount"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "data.assigned_deliverer": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "data.assigned_deliverer": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

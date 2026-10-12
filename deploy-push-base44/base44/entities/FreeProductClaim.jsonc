@@ -1,0 +1,75 @@
+{
+  "name": "FreeProductClaim",
+  "type": "object",
+  "properties": {
+    "customer_email": {
+      "type": "string",
+      "description": "Email du client"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "ID du produit gratuit"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Nom du produit"
+    },
+    "order_id": {
+      "type": "string",
+      "description": "ID de la commande"
+    },
+    "claim_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Date de r\u00e9clamation"
+    }
+  },
+  "required": [
+    "customer_email",
+    "product_id",
+    "product_name"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "name": "DiscountCode",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "description": "Code promo unique"
+    },
+    "discount_percentage": {
+      "type": "number",
+      "description": "Pourcentage de r\u00e9duction (0-100)"
+    },
+    "min_order_amount": {
+      "type": "number",
+      "description": "Montant minimum de commande",
+      "default": 0
+    },
+    "max_uses_per_customer": {
+      "type": "number",
+      "description": "Nombre maximum d'utilisations par client",
+      "default": 1
+    },
+    "applicable_order_numbers": {
+      "type": "array",
+      "description": "Num\u00e9ros de commandes applicables (1 pour 1\u00e8re commande, 2 pour 2\u00e8me, etc.)",
+      "items": {
+        "type": "number"
+      },
+      "default": []
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Code actif",
+      "default": true
+    },
+    "valid_from": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de d\u00e9but de validit\u00e9"
+    },
+    "valid_until": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de fin de validit\u00e9"
+    },
+    "total_uses": {
+      "type": "number",
+      "description": "Nombre total d'utilisations",
+      "default": 0
+    }
+  },
+  "required": [
+    "code",
+    "discount_percentage"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -1,0 +1,438 @@
+{
+  "name": "NotificationSettings",
+  "type": "object",
+  "properties": {
+    "admin_email": {
+      "type": "string",
+      "description": "Email de l'administrateur"
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Notifications activ\u00e9es",
+      "default": true
+    },
+    "use_single_sound": {
+      "type": "boolean",
+      "description": "Utiliser une seule sonnerie pour toutes les notifications",
+      "default": false
+    },
+    "global_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "default",
+      "description": "Sonnerie globale si use_single_sound activ\u00e9"
+    },
+    "new_order": {
+      "type": "boolean",
+      "description": "Nouvelle commande",
+      "default": true
+    },
+    "new_order_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "success"
+    },
+    "order_cancelled": {
+      "type": "boolean",
+      "description": "Commande annul\u00e9e",
+      "default": true
+    },
+    "order_cancelled_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "warning"
+    },
+    "order_confirmed": {
+      "type": "boolean",
+      "description": "Commande confirm\u00e9e",
+      "default": false
+    },
+    "order_confirmed_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "chime"
+    },
+    "order_delivered": {
+      "type": "boolean",
+      "description": "Commande livr\u00e9e",
+      "default": false
+    },
+    "order_delivered_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "success"
+    },
+    "new_return": {
+      "type": "boolean",
+      "description": "Nouvelle demande de retour",
+      "default": true
+    },
+    "new_return_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "alert"
+    },
+    "new_message": {
+      "type": "boolean",
+      "description": "Nouveau message client",
+      "default": true
+    },
+    "new_message_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "ding"
+    },
+    "new_refund": {
+      "type": "boolean",
+      "description": "Nouvelle demande de remboursement",
+      "default": true
+    },
+    "new_refund_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "urgent"
+    },
+    "new_user": {
+      "type": "boolean",
+      "description": "Nouvel utilisateur inscrit",
+      "default": true
+    },
+    "new_user_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "chime"
+    },
+    "new_review": {
+      "type": "boolean",
+      "description": "Nouvel avis client",
+      "default": true
+    },
+    "new_review_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "soft"
+    },
+    "low_stock": {
+      "type": "boolean",
+      "description": "Stock faible (\u22645)",
+      "default": true
+    },
+    "low_stock_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "warning"
+    },
+    "out_of_stock": {
+      "type": "boolean",
+      "description": "Produit en rupture de stock",
+      "default": true
+    },
+    "out_of_stock_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "urgent"
+    },
+    "high_value_order": {
+      "type": "boolean",
+      "description": "Commande \u00e0 valeur \u00e9lev\u00e9e (>100\u20ac)",
+      "default": true
+    },
+    "high_value_order_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "ascending"
+    },
+    "loyalty_milestone": {
+      "type": "boolean",
+      "description": "Client atteint un nouveau niveau",
+      "default": false
+    },
+    "loyalty_milestone_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "success"
+    },
+    "referral_success": {
+      "type": "boolean",
+      "description": "Parrainage r\u00e9ussi",
+      "default": false
+    },
+    "referral_success_sound": {
+      "type": "string",
+      "enum": [
+        "default",
+        "chime",
+        "bell",
+        "alert",
+        "beep",
+        "ding",
+        "double-beep",
+        "triple-beep",
+        "urgent",
+        "soft",
+        "ascending",
+        "descending",
+        "success",
+        "warning",
+        "none"
+      ],
+      "default": "chime"
+    },
+    "volume": {
+      "type": "number",
+      "description": "Volume (0-100)",
+      "default": 70,
+      "minimum": 0,
+      "maximum": 100
+    }
+  },
+  "required": [
+    "admin_email"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

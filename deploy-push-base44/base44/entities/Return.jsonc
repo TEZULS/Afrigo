@@ -1,0 +1,130 @@
+{
+  "name": "Return",
+  "type": "object",
+  "properties": {
+    "order_id": {
+      "type": "string",
+      "description": "ID de la commande"
+    },
+    "customer_email": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "wrong_product",
+        "expired"
+      ],
+      "description": "Raison du retour"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description d\u00e9taill\u00e9e"
+    },
+    "items": {
+      "type": "array",
+      "description": "Produits \u00e0 retourner",
+      "items": {
+        "type": "object",
+        "properties": {
+          "product_name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "total_price": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "photos": {
+      "type": "array",
+      "description": "Photos du produit (prises en direct, minimum 2 photos)",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "resolution_type": {
+      "type": "string",
+      "enum": [
+        "exchange",
+        "refund"
+      ],
+      "description": "Type de r\u00e9solution: \u00e9change ou remboursement sur portefeuille"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "rejected",
+        "approved",
+        "completed"
+      ],
+      "default": "pending"
+    },
+    "refund_amount": {
+      "type": "number"
+    },
+    "rejection_reason": {
+      "type": "string",
+      "description": "Motif du rejet"
+    },
+    "admin_message": {
+      "type": "string",
+      "description": "Message de l'administrateur au client (accompagne l'acceptation ou le remboursement)"
+    }
+  },
+  "required": [
+    "order_id",
+    "customer_email",
+    "reason",
+    "description",
+    "resolution_type"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "name": "DeliverySlot",
+  "type": "object",
+  "properties": {
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de livraison"
+    },
+    "time_slot": {
+      "type": "string",
+      "description": "Cr\u00e9neau horaire (ex: 09:00-12:00)"
+    },
+    "max_orders": {
+      "type": "number",
+      "description": "Nombre maximum de commandes pour ce cr\u00e9neau",
+      "default": 10
+    },
+    "current_orders": {
+      "type": "number",
+      "description": "Nombre de commandes d\u00e9j\u00e0 r\u00e9serv\u00e9es",
+      "default": 0
+    },
+    "is_available": {
+      "type": "boolean",
+      "description": "Cr\u00e9neau disponible",
+      "default": true
+    }
+  },
+  "required": [
+    "date",
+    "time_slot",
+    "max_orders"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

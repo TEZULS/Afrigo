@@ -1,0 +1,99 @@
+{
+  "name": "AdminPermissions",
+  "type": "object",
+  "properties": {
+    "admin_email": {
+      "type": "string",
+      "description": "Email de l'administrateur"
+    },
+    "username": {
+      "type": "string",
+      "description": "Identifiant de connexion unique"
+    },
+    "password": {
+      "type": "string",
+      "description": "Mot de passe de connexion"
+    },
+    "is_super_admin": {
+      "type": "boolean",
+      "description": "Super administrateur avec contr\u00f4le total",
+      "default": false
+    },
+    "can_modify": {
+      "type": "boolean",
+      "description": "Autorisation de modifier les donn\u00e9es (sinon lecture seule)",
+      "default": false
+    },
+    "permissions": {
+      "type": "array",
+      "description": "Liste des pages admin accessibles",
+      "items": {
+        "type": "string",
+        "enum": [
+          "AdminDashboard",
+          "AdminRevenueHistory",
+          "AdminUsers",
+          "AdminVisitors",
+          "AdminTopCustomers",
+          "AdminCustomerHistory",
+          "AdminClientPayment",
+          "AdminProducts",
+          "AdminProductHistory",
+          "AdminRecipes",
+          "AdminReviews",
+          "AdminOrders",
+          "AdminCarts",
+          "AdminReturns",
+          "AdminDeliveryZones",
+          "AdminDeliverySlots",
+          "AdminDeliverers",
+          "AdminManualAssignment",
+          "AdminDelivererTracking",
+          "AdminLoyalty",
+          "AdminReferrals",
+          "AdminPromoCodes",
+          "AdminWallet",
+          "AdminQRCode",
+          "AdminMessages",
+          "AdminBroadcast",
+          "AdminPushNotifications",
+          "AdminWelcomeMessage",
+          "AdminPayment",
+          "AdminNotifications",
+          "AdminSettings",
+          "AdminInternalRegulations",
+          "AdminPrivacyPolicy",
+          "AdminManagement"
+        ]
+      },
+      "default": []
+    }
+  },
+  "required": [
+    "admin_email",
+    "is_super_admin",
+    "permissions"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

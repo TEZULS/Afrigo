@@ -1,0 +1,86 @@
+{
+  "name": "PromoCode",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "description": "Code promo unique"
+    },
+    "owner_email": {
+      "type": "string",
+      "description": "Email du propri\u00e9taire du code"
+    },
+    "discount_type": {
+      "type": "string",
+      "enum": [
+        "percentage",
+        "fixed"
+      ],
+      "default": "percentage",
+      "description": "Type de r\u00e9duction"
+    },
+    "discount_value": {
+      "type": "number",
+      "description": "Valeur de la r\u00e9duction"
+    },
+    "usage_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Nombre d'utilisations"
+    },
+    "referral_bonus_credited": {
+      "type": "boolean",
+      "default": false,
+      "description": "Bonus du parrain cr\u00e9dit\u00e9"
+    }
+  },
+  "required": [
+    "code",
+    "owner_email",
+    "discount_type",
+    "discount_value"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.owner_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.owner_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "data.owner_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

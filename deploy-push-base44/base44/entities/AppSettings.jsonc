@@ -1,0 +1,100 @@
+{
+  "name": "AppSettings",
+  "type": "object",
+  "properties": {
+    "is_available": {
+      "type": "boolean",
+      "description": "Application disponible pour les clients",
+      "default": true
+    },
+    "maintenance_message": {
+      "type": "string",
+      "description": "Message affich\u00e9 en mode maintenance"
+    },
+    "geo_restriction_enabled": {
+      "type": "boolean",
+      "description": "Activer la restriction g\u00e9ographique",
+      "default": false
+    },
+    "allowed_regions": {
+      "type": "array",
+      "description": "R\u00e9gions autoris\u00e9es (europe, france, etc.)",
+      "items": {
+        "type": "string"
+      }
+    },
+    "geo_restriction_message": {
+      "type": "string",
+      "description": "Message affich\u00e9 si r\u00e9gion non autoris\u00e9e"
+    },
+    "support_phone": {
+      "type": "string",
+      "description": "Num\u00e9ro de t\u00e9l\u00e9phone du service client",
+      "default": "+33123456789"
+    },
+    "support_email": {
+      "type": "string",
+      "description": "Email du service client",
+      "default": "contact@afrigo.app"
+    },
+    "return_time_limit_hours": {
+      "type": "number",
+      "description": "D\u00e9lai en heures pour effectuer un retour apr\u00e8s livraison",
+      "default": 2
+    },
+    "auto_notify_order_status": {
+      "type": "boolean",
+      "description": "Notifications automatiques pour les changements de statut de commande",
+      "default": true
+    },
+    "auto_notify_return_status": {
+      "type": "boolean",
+      "description": "Notifications automatiques pour les changements de statut de retour",
+      "default": true
+    },
+    "delivery_slots_enabled": {
+      "type": "boolean",
+      "description": "Activer le syst\u00e8me de cr\u00e9neaux de livraison",
+      "default": false
+    },
+    "stripe_publishable_key": {
+      "type": "string",
+      "description": "Cl\u00e9 publique Stripe (pk_test ou pk_live)"
+    },
+    "stripe_secret_key": {
+      "type": "string",
+      "description": "Cl\u00e9 secr\u00e8te Stripe (sk_test ou sk_live)"
+    },
+    "hero_title": {
+      "type": "string",
+      "description": "Titre affich\u00e9 dans la zone orange de la page d'accueil",
+      "default": "Bienvenue sur AfriGo"
+    },
+    "hero_subtitle": {
+      "type": "string",
+      "description": "Sous-titre affich\u00e9 dans la zone orange de la page d'accueil",
+      "default": "Profitez de nos produits de qualit\u00e9 et nos bonus au quotidien"
+    }
+  },
+  "required": [
+    "is_available"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

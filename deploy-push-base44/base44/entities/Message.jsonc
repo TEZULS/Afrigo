@@ -1,0 +1,78 @@
+{
+  "name": "Message",
+  "type": "object",
+  "properties": {
+    "customer_email": {
+      "type": "string",
+      "description": "Email du client"
+    },
+    "content": {
+      "type": "string",
+      "description": "Contenu du message"
+    },
+    "sender_type": {
+      "type": "string",
+      "enum": [
+        "customer",
+        "admin"
+      ],
+      "description": "Exp\u00e9diteur"
+    },
+    "order_id": {
+      "type": "string",
+      "description": "ID de commande associ\u00e9e (optionnel)"
+    },
+    "is_read": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "customer_email",
+    "content",
+    "sender_type"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

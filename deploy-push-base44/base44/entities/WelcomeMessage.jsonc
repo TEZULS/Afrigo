@@ -1,0 +1,82 @@
+{
+  "name": "WelcomeMessage",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Titre du message",
+      "default": "Bienvenue sur AfriGo"
+    },
+    "message": {
+      "type": "string",
+      "description": "Contenu du message de bienvenue"
+    },
+    "button_text_guest": {
+      "type": "string",
+      "description": "Texte du bouton pour les invit\u00e9s",
+      "default": "S'inscrire/Se connecter"
+    },
+    "button_text_registered": {
+      "type": "string",
+      "description": "Texte du bouton pour les utilisateurs inscrits",
+      "default": "J'ai compris"
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Activer/d\u00e9sactiver le message",
+      "default": true
+    },
+    "target_audience": {
+      "type": "string",
+      "enum": [
+        "guests",
+        "registered",
+        "all",
+        "specific"
+      ],
+      "description": "Cible du message : invit\u00e9s, inscrits, tous, ou utilisateurs sp\u00e9cifiques",
+      "default": "guests"
+    },
+    "specific_users": {
+      "type": "array",
+      "description": "Emails des utilisateurs sp\u00e9cifiques cibl\u00e9s",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "display_frequency": {
+      "type": "string",
+      "enum": [
+        "once",
+        "daily",
+        "every_login"
+      ],
+      "description": "Fr\u00e9quence d'affichage: une seule fois, chaque jour, ou \u00e0 chaque connexion",
+      "default": "once"
+    }
+  },
+  "required": [
+    "message",
+    "is_active",
+    "target_audience"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

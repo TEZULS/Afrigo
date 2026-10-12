@@ -1,0 +1,70 @@
+{
+  "name": "Recipe",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Titre de la recette"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description d\u00e9taill\u00e9e de la recette (ingr\u00e9dients, pr\u00e9paration, etc.)"
+    },
+    "country_code": {
+      "type": "string",
+      "description": "Code ISO du pays africain"
+    },
+    "country_name": {
+      "type": "string",
+      "description": "Nom du pays africain"
+    },
+    "country_flag": {
+      "type": "string",
+      "description": "Emoji du drapeau du pays"
+    },
+    "images": {
+      "type": "array",
+      "description": "URLs des images de la recette",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "videos": {
+      "type": "array",
+      "description": "URLs des vid\u00e9os de la recette",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Recette visible dans la boutique",
+      "default": true
+    }
+  },
+  "required": [
+    "title",
+    "description",
+    "country_code"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

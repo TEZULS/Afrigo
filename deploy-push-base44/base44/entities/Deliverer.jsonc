@@ -1,0 +1,102 @@
+{
+  "name": "Deliverer",
+  "type": "object",
+  "properties": {
+    "deliverer_id": {
+      "type": "string",
+      "description": "Identifiant court du livreur (auto-g\u00e9n\u00e9r\u00e9)"
+    },
+    "email": {
+      "type": "string",
+      "description": "Email du livreur"
+    },
+    "full_name": {
+      "type": "string",
+      "description": "Nom complet du livreur"
+    },
+    "address": {
+      "type": "string",
+      "description": "Adresse du livreur"
+    },
+    "postal_code": {
+      "type": "string",
+      "description": "Code postal du livreur"
+    },
+    "city": {
+      "type": "string",
+      "description": "Ville du livreur"
+    },
+    "phone": {
+      "type": "string",
+      "description": "T\u00e9l\u00e9phone du livreur"
+    },
+    "birth_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de naissance du livreur"
+    },
+    "username": {
+      "type": "string",
+      "description": "Identifiant de connexion unique"
+    },
+    "password": {
+      "type": "string",
+      "description": "Mot de passe de connexion (d\u00e9fini par l'admin)"
+    },
+    "access_token": {
+      "type": "string",
+      "description": "Token d'acc\u00e8s permanent pour connexion automatique"
+    },
+    "assigned_zones": {
+      "type": "array",
+      "description": "IDs des zones de livraison assign\u00e9es",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Livreur actif",
+      "default": true
+    }
+  },
+  "required": [
+    "email",
+    "full_name",
+    "address",
+    "postal_code",
+    "city",
+    "phone",
+    "birth_date"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "$or": [
+        {
+          "data.email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

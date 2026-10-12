@@ -1,0 +1,73 @@
+{
+  "name": "ProductSalesSnapshot",
+  "type": "object",
+  "properties": {
+    "snapshot_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date du classement quotidien"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "ID du produit"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Nom du produit"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "URL de l'image du produit"
+    },
+    "category": {
+      "type": "string",
+      "description": "Cat\u00e9gorie du produit"
+    },
+    "purchase_count": {
+      "type": "number",
+      "description": "Nombre de ventes totales",
+      "default": 0
+    },
+    "revenue": {
+      "type": "number",
+      "description": "Montant total vendu (purchase_count \u00d7 price)",
+      "default": 0
+    },
+    "price": {
+      "type": "number",
+      "description": "Prix du produit au moment du snapshot"
+    },
+    "rank": {
+      "type": "number",
+      "description": "Classement (1 = le plus vendu)"
+    }
+  },
+  "required": [
+    "snapshot_date",
+    "product_id",
+    "product_name",
+    "rank"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "name": "LoyaltySettings",
+  "type": "object",
+  "properties": {
+    "points_per_euro": {
+      "type": "number",
+      "description": "Nombre de points gagn\u00e9s par euro d\u00e9pens\u00e9",
+      "default": 1
+    },
+    "min_purchase_amount": {
+      "type": "number",
+      "description": "Montant minimum d'achat pour gagner des points",
+      "default": 10
+    },
+    "points_validity_duration": {
+      "type": "number",
+      "description": "Dur\u00e9e de validit\u00e9 des points",
+      "default": 1
+    },
+    "points_validity_unit": {
+      "type": "string",
+      "enum": [
+        "days",
+        "weeks",
+        "months"
+      ],
+      "description": "Unit\u00e9 de temps pour la validit\u00e9 des points",
+      "default": "months"
+    },
+    "points_to_euro_rate": {
+      "type": "number",
+      "description": "Taux de conversion points vers euros",
+      "default": 100
+    },
+    "euro_per_point": {
+      "type": "number",
+      "description": "Montant en euros gagn\u00e9 par point r\u00e9colt\u00e9",
+      "default": 0.01
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Syst\u00e8me de fid\u00e9lit\u00e9 actif",
+      "default": true
+    },
+    "auto_calculate_points": {
+      "type": "boolean",
+      "description": "Calculer automatiquement les points sur la p\u00e9riode",
+      "default": true
+    }
+  },
+  "required": [
+    "points_per_euro",
+    "min_purchase_amount",
+    "is_active"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

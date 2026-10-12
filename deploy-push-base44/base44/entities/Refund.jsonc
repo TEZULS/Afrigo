@@ -1,0 +1,95 @@
+{
+  "name": "Refund",
+  "type": "object",
+  "properties": {
+    "order_id": {
+      "type": "string",
+      "description": "ID de la commande"
+    },
+    "customer_email": {
+      "type": "string",
+      "description": "Email du client"
+    },
+    "amount": {
+      "type": "number",
+      "description": "Montant du remboursement"
+    },
+    "refund_method": {
+      "type": "string",
+      "enum": [
+        "card",
+        "wallet"
+      ],
+      "description": "M\u00e9thode de remboursement"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "completed"
+      ],
+      "default": "pending",
+      "description": "Statut de la demande"
+    },
+    "cancellation_reason": {
+      "type": "string",
+      "description": "Motif d'annulation de la commande"
+    },
+    "admin_notes": {
+      "type": "string",
+      "description": "Notes de l'administrateur"
+    }
+  },
+  "required": [
+    "order_id",
+    "customer_email",
+    "amount",
+    "refund_method",
+    "cancellation_reason"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

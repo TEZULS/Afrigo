@@ -1,0 +1,166 @@
+{
+  "name": "DeliveryZone",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Nom de la zone (ex: Paris Centre)"
+    },
+    "postal_codes": {
+      "type": "array",
+      "description": "Liste des codes postaux couverts",
+      "items": {
+        "type": "string"
+      }
+    },
+    "cities": {
+      "type": "array",
+      "description": "Liste des villes couvertes",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "delivery_fee": {
+      "type": "number",
+      "description": "Frais de livraison en euros",
+      "default": 5
+    },
+    "free_delivery_threshold": {
+      "type": "number",
+      "description": "Montant minimum pour livraison gratuite",
+      "default": 29
+    },
+    "delivery_time_days": {
+      "type": "string",
+      "description": "D\u00e9lai de livraison (ex: '2 jours', '24-48h', 'Sous 2 jours')",
+      "default": "2 jours"
+    },
+    "delivery_schedule": {
+      "type": "array",
+      "description": "Jours et horaires de livraison disponibles",
+      "items": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string",
+            "description": "Jour de la semaine"
+          },
+          "time_slots": {
+            "type": "array",
+            "description": "Cr\u00e9neaux horaires pour ce jour",
+            "items": {
+              "type": "object",
+              "properties": {
+                "time_slot": {
+                  "type": "string",
+                  "description": "Cr\u00e9neau horaire (ex: 09:00-10:00)"
+                },
+                "max_orders": {
+                  "type": "number",
+                  "description": "Nombre maximum de clients pouvant s\u00e9lectionner ce cr\u00e9neau",
+                  "default": 10
+                }
+              }
+            }
+          }
+        }
+      },
+      "default": []
+    },
+    "min_days_before_delivery": {
+      "type": "number",
+      "description": "Nombre de jours minimum avant la livraison (0=jour m\u00eame, 1=lendemain, 2=apr\u00e8s-demain...)",
+      "default": 0
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Zone active",
+      "default": true
+    },
+    "min_order_amount": {
+      "type": "number",
+      "description": "Montant minimum de commande",
+      "default": 0
+    },
+    "delivery_discount_percentage": {
+      "type": "number",
+      "description": "Pourcentage de r\u00e9duction sur les frais de livraison",
+      "default": 0
+    },
+    "discount_valid_from": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de d\u00e9but de validit\u00e9 de la r\u00e9duction"
+    },
+    "discount_valid_until": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de fin de validit\u00e9 de la r\u00e9duction"
+    },
+    "discount_for_order_numbers": {
+      "type": "array",
+      "description": "Num\u00e9ros de commandes b\u00e9n\u00e9ficiant de la r\u00e9duction",
+      "items": {
+        "type": "number"
+      },
+      "default": []
+    },
+    "discount_for_new_customers": {
+      "type": "boolean",
+      "description": "R\u00e9duction applicable uniquement aux nouveaux clients (1\u00e8re commande)",
+      "default": false
+    },
+    "tier_discounts": {
+      "type": "object",
+      "description": "R\u00e9ductions par niveau de client",
+      "properties": {
+        "normal": {
+          "type": "number",
+          "default": 0
+        },
+        "argent": {
+          "type": "number",
+          "default": 0
+        },
+        "or": {
+          "type": "number",
+          "default": 0
+        },
+        "diamant": {
+          "type": "number",
+          "default": 0
+        }
+      },
+      "default": {
+        "normal": 0,
+        "argent": 0,
+        "or": 0,
+        "diamant": 0
+      }
+    }
+  },
+  "required": [
+    "name",
+    "postal_codes",
+    "delivery_fee"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "name": "LoyaltyPoints",
+  "type": "object",
+  "properties": {
+    "customer_email": {
+      "type": "string",
+      "description": "Email du client"
+    },
+    "points": {
+      "type": "number",
+      "description": "Nombre de points",
+      "default": 0
+    },
+    "earned_this_month": {
+      "type": "number",
+      "description": "Points gagn\u00e9s ce mois",
+      "default": 0
+    },
+    "order_id": {
+      "type": "string",
+      "description": "ID de la commande associ\u00e9e"
+    },
+    "transaction_type": {
+      "type": "string",
+      "enum": [
+        "earned",
+        "converted",
+        "expired"
+      ],
+      "description": "Type de transaction"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date",
+      "description": "Date d'expiration des points"
+    },
+    "converted_amount": {
+      "type": "number",
+      "description": "Montant converti en euros"
+    }
+  },
+  "required": [
+    "customer_email",
+    "points",
+    "transaction_type"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
