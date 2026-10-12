@@ -14,7 +14,7 @@ import { ClientTabs } from './ClientTabs';
 import { AdminDrawer } from './AdminDrawer';
 import { DelivererStack } from './DelivererStack';
 import { linking } from './linking';
-import { navigationRef } from './navigationRef';
+import { flushPendingNavigation, navigationRef } from './navigationRef';
 import type { RootStackParamList } from './types';
 
 import { SearchScreen } from '@/screens/client/SearchScreen';
@@ -64,6 +64,7 @@ export const RootNavigator: React.FC = () => {
   return (
     <NavigationContainer
       ref={navigationRef}
+      onReady={flushPendingNavigation}
       linking={linking}
       theme={{
         dark: scheme === 'dark',
