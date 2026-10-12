@@ -1,0 +1,41 @@
+{
+  "name": "PrivacyPolicy",
+  "type": "object",
+  "properties": {
+    "content": {
+      "type": "string",
+      "description": "Contenu de la politique de confidentialit\u00e9"
+    },
+    "version": {
+      "type": "string",
+      "description": "Version de la politique (ex: 1.0, 1.1)",
+      "default": "1.0"
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Politique active",
+      "default": true
+    }
+  },
+  "required": [
+    "content"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

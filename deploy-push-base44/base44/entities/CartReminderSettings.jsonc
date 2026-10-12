@@ -1,0 +1,84 @@
+{
+  "name": "CartReminderSettings",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "description": "Rappel de panier activ\u00e9",
+      "default": true
+    },
+    "title": {
+      "type": "string",
+      "description": "Titre de la notification de rappel",
+      "default": "\ud83d\uded2 Vous avez oubli\u00e9 votre panier !"
+    },
+    "message": {
+      "type": "string",
+      "description": "Message de la notification. Utilisez {count} pour ins\u00e9rer le nombre d'articles.",
+      "default": "Il semble que vous ayez laiss\u00e9 {count} article(s) dans votre panier. Revenez finaliser votre commande avant qu'il ne soit trop tard !"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Image jointe (optionnel)"
+    },
+    "idle_threshold_hours": {
+      "type": "number",
+      "description": "D\u00e9lai d'inactivit\u00e9 du panier avant rappel (en heures)",
+      "default": 24
+    },
+    "anti_spam_hours": {
+      "type": "number",
+      "description": "D\u00e9lai anti-spam entre deux rappels pour le m\u00eame client (en heures)",
+      "default": 4
+    },
+    "low_stock_enabled": {
+      "type": "boolean",
+      "description": "Rappel de stock faible activ\u00e9",
+      "default": true
+    },
+    "low_stock_threshold": {
+      "type": "number",
+      "description": "Seuil de stock consid\u00e9r\u00e9 comme faible (unit\u00e9s restantes)",
+      "default": 5
+    },
+    "low_stock_title": {
+      "type": "string",
+      "description": "Titre de la notification de stock faible",
+      "default": "\u26a0\ufe0f Un article de votre panier est bient\u00f4t en rupture !"
+    },
+    "low_stock_message": {
+      "type": "string",
+      "description": "Message de la notification de stock faible. Utilisez {product} et {stock}.",
+      "default": "Le produit \"{product}\" dans votre panier ne dispose plus que de {stock} unit\u00e9(s) en stock. Commandez vite avant qu'il ne soit trop tard !"
+    },
+    "low_stock_image_url": {
+      "type": "string",
+      "description": "Image jointe pour le rappel de stock faible (optionnel)"
+    }
+  },
+  "required": [
+    "enabled"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

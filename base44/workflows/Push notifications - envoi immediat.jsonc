@@ -1,0 +1,34 @@
+{
+  "name": "Push – envoi immédiat",
+  "description": "Envoie en notification push (téléphones) chaque AppNotification dès sa création",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "entity",
+      "events": [
+        "create"
+      ],
+      "entity_name": "AppNotification"
+    }
+  },
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "push_envoi_immediat",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "run_function": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "dispatchPushNotifications",
+            "args": {}
+          },
+          "then": "end"
+        }
+      }
+    ]
+  }
+}

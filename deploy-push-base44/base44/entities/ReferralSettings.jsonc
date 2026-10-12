@@ -1,0 +1,60 @@
+{
+  "name": "ReferralSettings",
+  "type": "object",
+  "properties": {
+    "referrer_bonus": {
+      "type": "number",
+      "description": "Bonus pour le parrain en euros",
+      "default": 10
+    },
+    "referred_bonus": {
+      "type": "number",
+      "description": "Bonus pour le filleul en euros",
+      "default": 5
+    },
+    "max_referrals_per_user": {
+      "type": "number",
+      "description": "Nombre maximum de parrainages par utilisateur",
+      "default": 2
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Activer/d\u00e9sactiver le syst\u00e8me de parrainage",
+      "default": true
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de d\u00e9but de la campagne"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de fin de la campagne"
+    }
+  },
+  "required": [
+    "referrer_bonus",
+    "referred_bonus",
+    "max_referrals_per_user",
+    "is_active"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "name": "CashCollection",
+  "type": "object",
+  "properties": {
+    "deliverer_email": {
+      "type": "string",
+      "description": "Email du livreur"
+    },
+    "order_id": {
+      "type": "string",
+      "description": "ID de la commande"
+    },
+    "amount": {
+      "type": "number",
+      "description": "Montant collect\u00e9 en esp\u00e8ces"
+    },
+    "collection_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Date et heure de collecte"
+    },
+    "is_archived": {
+      "type": "boolean",
+      "description": "Solde remis et archiv\u00e9",
+      "default": false
+    },
+    "archived_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Date d'archivage du solde"
+    }
+  },
+  "required": [
+    "deliverer_email",
+    "order_id",
+    "amount",
+    "collection_date"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.deliverer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.deliverer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "data.deliverer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

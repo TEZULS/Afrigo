@@ -1,0 +1,47 @@
+{
+  "name": "NotificationRead",
+  "type": "object",
+  "properties": {
+    "notification_id": {
+      "type": "string",
+      "description": "ID de la notification"
+    },
+    "user_email": {
+      "type": "string",
+      "description": "Email de l'utilisateur"
+    },
+    "is_read": {
+      "type": "boolean",
+      "default": false,
+      "description": "Notification lue"
+    },
+    "read_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Date de lecture"
+    },
+    "deleted": {
+      "type": "boolean",
+      "default": false,
+      "description": "Supprim\u00e9e par l'utilisateur"
+    }
+  },
+  "required": [
+    "notification_id",
+    "user_email"
+  ],
+  "rls": {
+    "read": {
+      "data.user_email": "{{user.email}}"
+    },
+    "create": {
+      "data.user_email": "{{user.email}}"
+    },
+    "update": {
+      "data.user_email": "{{user.email}}"
+    },
+    "delete": {
+      "data.user_email": "{{user.email}}"
+    }
+  }
+}

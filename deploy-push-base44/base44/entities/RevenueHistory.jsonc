@@ -1,0 +1,74 @@
+{
+  "name": "RevenueHistory",
+  "type": "object",
+  "properties": {
+    "period_type": {
+      "type": "string",
+      "enum": [
+        "daily",
+        "weekly",
+        "monthly"
+      ],
+      "description": "Type de p\u00e9riode"
+    },
+    "period_label": {
+      "type": "string",
+      "description": "Libell\u00e9 de la p\u00e9riode (ex: 2026-01, semaine 4, 2026-01-15)"
+    },
+    "period_start": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de d\u00e9but de la p\u00e9riode"
+    },
+    "period_end": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de fin de la p\u00e9riode"
+    },
+    "total_revenue": {
+      "type": "number",
+      "description": "Chiffre d'affaires total",
+      "default": 0
+    },
+    "order_count": {
+      "type": "number",
+      "description": "Nombre de commandes",
+      "default": 0
+    },
+    "average_order_value": {
+      "type": "number",
+      "description": "Valeur moyenne des commandes",
+      "default": 0
+    }
+  },
+  "required": [
+    "period_type",
+    "period_label",
+    "period_start",
+    "period_end",
+    "total_revenue",
+    "order_count"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -270,8 +270,8 @@ Le backend AfriGo est hébergé sur la plateforme **base44** et expose 21 foncti
 | `sendCustomInvitation`              | (Admin) Invite un nouvel utilisateur (admin ou client) par e-mail                      |
 | `archiveDailyCash`                  | Archive les `CashCollection` du jour                                                   |
 | `archiveMonthlyRevenue`             | Archive les statistiques de revenus quotidiens / hebdo / mensuels                      |
-| `pushAppNotification`               | (Admin) Pousse une `AppNotification` (existante ou créée à la volée) via Expo → APNs / FCM. Ne pas la nommer `sendPushNotification` : nom réservé par base44 (intégration intégrée). |
-| `dispatchPushNotifications`         | (Planifiée) Pousse toute `AppNotification` récente non encore envoyée                  |
+| `pushAppNotification`               | (Admin, facultatif) Crée si besoin une `AppNotification` et la fait pousser tout de suite par `dispatchPushNotifications`. Ne pas la nommer `sendPushNotification` : nom réservé par base44 (intégration intégrée). |
+| `dispatchPushNotifications`         | (Planifiée, seul expéditeur) Pousse toute `AppNotification` récente non encore envoyée : Apple direct (APNs) ou Expo |
 
 ### 10.1 bis Notifications client (in-app + push)
 
@@ -326,49 +326,89 @@ Pour des push **instantanées** app fermée, il faut un envoi serveur : c'est la
 chaîne ci-dessous, prête mais facultative (les deux voies ne font pas doublon
 grâce à `push_sent`).
 
+**Chaîne push serveur (facultative)**, revue le 2026-10-10 :
 
-**Chaîne push** (app fermée / écran verrouillé) :
+1. `mob/src/services/pushNotifications.ts` demande la permission (après la
+   connexion), lit le jeton natif de l'appareil (`devicePushToken.ts`), en
+   déduit le jeton Expo, et écrit sur le profil `expo_push_token`,
+   `apns_device_token` (iPhone), `push_platform`, `push_token_updated_at`,
+   `push_enabled`. Le cache local n'est posé que si base44 renvoie bien les
+   jetons (sinon nouvel essai au démarrage suivant) ; renvoi au retour dans
+   l'app (≤ 1 fois / 10 min), au changement de jeton, et au moins une fois par
+   jour. La déconnexion retire les jetons **avant** de couper la session.
+2. `dispatchPushNotifications` (**le seul expéditeur**) pousse toute
+   `AppNotification` récente non encore envoyée, quelle que soit son origine —
+   le formulaire admin ne fait que créer la ligne. Déclenchée par deux
+   **Workflows** base44 (`base44/workflows/`) : « Push – envoi immédiat » (à
+   chaque création d'`AppNotification`) et « Push – nouvel essai » (toutes les
+   15 min, `{"mode": "retry"}`). L'app est en mode Workflows : base44 refuse
+   les automatisations attachées aux fonctions (erreur 409 `workflows_enabled`). Ciblage identique
+   au fil : diffusion seulement si `target_audience === 'all'`, sinon
+   `target_emails`. Un appareil = un jeton = le compte inscrit en dernier.
+   - **Apple direct (APNs)** pour les iPhone si les secrets `APNS_KEY_P8`,
+     `APNS_KEY_ID`, `APNS_TEAM_ID` sont définis ; **Expo** sinon (et pour
+     Android). Jetons morts (410 Apple, `DeviceNotRegistered` Expo) effacés.
+   - Réservation `push_sent: true` **avant** l'envoi ; libérée si rien n'est
+     parti (3 essais au plus). Sans le champ `push_sent`, la fonction refuse
+     d'envoyer (aucun doublon possible).
+   - Appel sans le secret `PUSH_DISPATCH_SECRET` (en-tête `x-dispatch-secret`
+     ou `cronSecret` dans le corps) ni session admin : fenêtre et volume par
+     défaut, aucune statistique renvoyée.
+3. `pushAppNotification` (admin, facultatif) crée la notification si besoin
+   puis appelle le distributeur pour un envoi immédiat (`force: true` pour
+   renvoyer une notification déjà poussée).
+4. Un appui ouvre l'écran lié (`related_type` / `related_id`), y compris app
+   fermée (la navigation attend que l'app soit prête) ; le retour automatique
+   à l'accueil après 5 min d'absence ne l'écrase pas.
 
-1. `mob/src/services/pushNotifications.ts` demande la permission, récupère le
-   jeton Expo du device et l'écrit sur le profil (`expo_push_token`).
-2. `dispatchPushNotifications` (tâche planifiée) pousse toute `AppNotification`
-   récente non encore envoyée, quelle que soit son origine — aucun changement
-   n'est donc requis dans l'admin.
-3. `pushAppNotification` permet en plus un envoi explicite : pousser une
-   notification existante (`{ notificationId }`) ou créer + pousser en une fois.
-4. Expo relaie à APNs / FCM. Un appui ouvre l'écran correspondant à
-   `related_type` / `related_id` (commande, produit, panier) ou l'onglet 🔔.
-
-**Prérequis à faire une seule fois dans base44 / EAS :**
+**Prérequis de la chaîne serveur (seulement pour des push instantanées) :**
 
 | Étape | Où | Détail |
 |-------|----|--------|
-| Ajouter `expo_push_token` (string) au schéma `User` | base44 → Data → User | **Indispensable à la push.** Champs annexes facultatifs : `push_platform`, `push_token_updated_at`, `push_enabled`. |
-| Ajouter `push_sent` (boolean, défaut `false`) au schéma `AppNotification` | base44 → Data → AppNotification | Garantit qu'une notification n'est poussée qu'une fois. Sans ce champ, le dispatcher renverrait la même notification à chaque passage dans sa fenêtre. |
-| Déployer `dispatchPushNotifications` | base44 → Functions | `base44/functions/dispatchPushNotifications/entry.ts`, à planifier toutes les 1 à 5 minutes. |
-| Déployer `pushAppNotification` | base44 → Functions | `base44/functions/pushAppNotification/entry.ts` (envoi explicite, réservé aux admins). |
-| Credentials push | `eas credentials` | iOS : clé APNs (capability *Push Notifications* déjà présente sur l'App ID). Android : clé de service **FCM V1** + `google-services.json`. |
+| Champs `User` : `expo_push_token`, `apns_device_token` (texte), `push_platform`, `push_token_updated_at` (texte), `push_enabled` (booléen) | base44 → Data → User | **Indispensables.** base44 ignore sans erreur un champ absent du schéma. Liste dans `base44/entities/User.jsonc`. Contrôle sur le téléphone : Paramètres → Notifications → « Reliées à votre compte ». |
+| Champ `AppNotification.push_sent` (booléen, défaut `false`) ; facultatifs `push_error` (texte), `push_attempts` (nombre) | base44 → Data → AppNotification | Sans `push_sent`, le distributeur refuse d'envoyer. Cf. `base44/entities/AppNotification.jsonc`. |
+| Secret `PUSH_DISPATCH_SECRET` (32+ caractères aléatoires) | base44 → Settings → Secrets | Pour les appels de confiance (dryRun, statistiques). |
+| Déployer `dispatchPushNotifications` et ses deux Workflows | `node deploy-push-base44/deploy.cjs` puis `node deploy-push-base44/finish.cjs` (CLI base44 connecté : `npx base44 login`) | Sans les Workflows, aucune push ne part : l'admin ne fait que créer la ligne. Fait le 2026-10-11 : champs User / AppNotification ajoutés, `pushAppNotification` déployée. |
+| Déployer `pushAppNotification` | base44 → Code → Functions | Facultatif (envoi immédiat par un admin). |
+| iPhone, voie Apple : clé APNs `.p8` → secrets `APNS_KEY_P8` (contenu du fichier), `APNS_KEY_ID`, `APNS_TEAM_ID` = `L2XBYAZYUL` | developer.apple.com → Keys (+) → *Apple Push Notifications service* ; base44 → Secrets | Le fichier ne se télécharge qu'une fois. `APNS_ENV=development` seulement pour un build de dev. |
+| iPhone, voie Expo (si pas de clé côté base44) | `cd mob && eas credentials -p ios` → production → Push Notifications | Une clé APNs doit être attachée à `app.afrigo.mobile`, sinon accusé `InvalidCredentials`. Si « Enhanced push security » est activée sur expo.dev, ajouter le secret `EXPO_ACCESS_TOKEN`. |
+| Android | Firebase → app `app.afrigo.mobile` → `google-services.json` dans `mob/` ; `eas credentials -p android` → FCM V1 | Sans ce fichier, Android n'obtient **aucun** jeton. `app.config.js` le prend automatiquement s'il existe. **Pas encore fait au 2026-10-20** (0 appareil Android inscrit) : sur Android, seules les notifications produites par l'app elle-même arrivent (app ouverte, ou réveil système en arrière-plan, au mieux toutes les 15 min). |
 
-> Les push ne fonctionnent que sur un **build EAS** (development / preview /
-> production) installé sur un **appareil réel** — ni Expo Go, ni simulateur.
-> Un client qui n'a jamais ouvert l'app, ou qui a refusé les notifications,
-> continue de voir la notification in-app dans l'onglet 🔔.
+> Les push ne fonctionnent que sur un **build EAS** installé sur un **appareil
+> réel** — ni Expo Go, ni simulateur. Un client sans jeton (jamais connecté
+> depuis l'app, notifications refusées) voit quand même la notification dans
+> l'onglet 🔔.
 
-**État constaté le 2026-09-11** (via l'API REST base44) : `dispatchPushNotifications`
-n'est **pas déployée** (« Backend function not found or not deployed ») et les
-lignes `AppNotification` récentes ne portent aucun champ `push_sent`. Tant que
-les quatre premières étapes du tableau ci-dessus ne sont pas faites dans
-base44, **aucune push n'est envoyée** : les notifications n'apparaissent que
-dans l'onglet 🔔, app ouverte. Le code mobile, lui, est prêt (permission,
-jeton, canal Android, badge, ouverture de l'écran lié).
+**Test direct par Apple** (console Push : icloud.developer.apple.com →
+Push Notifications, connecté avec le compte **Account Holder / Admin**) :
+sur l'iPhone, Paramètres → Notifications → « Copier le jeton de l'appareil » ;
+dans la console : équipe `L2XBYAZYUL`, bundle `app.afrigo.mobile`,
+environnement **Production** (TestFlight / App Store), type `alert`, priorité
+10, charge utile :
 
-Vérification rapide après déploiement :
+```json
+{"aps":{"alert":{"title":"AfriGo","body":"Test direct Apple"},"sound":"default"},"body":{"relatedType":"order","relatedId":"<id de commande>"}}
+```
+
+Les données de navigation vont sous la clé `body` (lue par expo-notifications).
+`BadDeviceToken` = mauvais environnement ou jeton Expo collé à la place du
+jeton Apple. Si ce test arrive mais pas les push base44, le problème est côté
+serveur (déploiement, planification, clé).
+
+**État constaté le 2026-10-10** (sondes publiques) : `dispatchPushNotifications`
+et `pushAppNotification` ne sont **pas déployées** (« not found or not
+deployed ») ; le formulaire admin publié ne fait que `AppNotification.create`.
+Tant que le tableau ci-dessus n'est pas fait, **aucune push n'est envoyée**.
+
+Vérification après déploiement :
 
 ```bash
-curl -X POST "https://base44.app/api/apps/<APP_ID>/functions/dispatchPushNotifications"   -H "api_key: <API_KEY>" -H "Content-Type: application/json"   -d '{"dryRun": true, "sinceMinutes": 60}'
-# → {"success":true,"dryRun":true,"notifications":N,"messages":M}
-#   M = nombre de téléphones ciblés ; 0 signifie qu'aucun profil User ne porte
-#   encore d'expo_push_token (champ absent du schéma, ou app jamais ouverte).
+curl -X POST "https://base44.app/api/apps/<APP_ID>/functions/dispatchPushNotifications" \
+  -H "Content-Type: application/json" -H "x-dispatch-secret: <PUSH_DISPATCH_SECRET>" \
+  -d '{"dryRun": true, "sinceMinutes": 1440}'
+# → {"success":true,"dryRun":true,"channel":"apple+expo","notifications":N,"devices":M}
+#   devices = 0 : aucun profil ne porte encore de jeton (champs User absents, ou
+#   personne ne s'est reconnecté depuis la 1.0.34).
 ```
 
 ### 10.2 Variables d'env. côté backend
@@ -378,6 +418,10 @@ Ces variables sont configurées dans l'interface base44 (pas dans le repo) :
 - `STRIPE_SECRET_KEY` — clé secrète Stripe (jamais exposée au mobile)
 - `STRIPE_API_KEY` — alias / variante selon les fonctions
 - `STRIPE_WEBHOOK_SECRET` — signature des webhooks Stripe
+- `PUSH_DISPATCH_SECRET` — appels de confiance à `dispatchPushNotifications` (tâche planifiée)
+- `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` (+ `APNS_ENV` facultatif) — envoi direct par Apple
+- `EXPO_ACCESS_TOKEN` — facultatif, si « Enhanced push security » est activée sur expo.dev
+- `PUSH_TYPES` — facultatif, types d'`AppNotification` à pousser (ex. `manual,delivery_status`)
 
 ### 10.3 Appeler une fonction depuis le mobile
 

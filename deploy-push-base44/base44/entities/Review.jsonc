@@ -1,0 +1,87 @@
+{
+  "name": "Review",
+  "type": "object",
+  "properties": {
+    "product_id": {
+      "type": "string",
+      "description": "ID du produit (optionnel)"
+    },
+    "customer_email": {
+      "type": "string",
+      "description": "Email du client"
+    },
+    "customer_name": {
+      "type": "string",
+      "description": "Nom du client"
+    },
+    "rating": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "Note de 1 \u00e0 5 \u00e9toiles"
+    },
+    "comment": {
+      "type": "string",
+      "description": "Commentaire"
+    },
+    "order_id": {
+      "type": "string",
+      "description": "ID de la commande associ\u00e9e"
+    },
+    "review_type": {
+      "type": "string",
+      "enum": [
+        "general",
+        "product"
+      ],
+      "default": "general",
+      "description": "Type d'avis: g\u00e9n\u00e9ral (commande/livraison) ou produit"
+    },
+    "is_visible": {
+      "type": "boolean",
+      "description": "Avis visible par les clients",
+      "default": true
+    },
+    "admin_response": {
+      "type": "string",
+      "description": "R\u00e9ponse de l'administrateur"
+    }
+  },
+  "required": [
+    "customer_email",
+    "rating",
+    "order_id"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": null,
+    "update": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

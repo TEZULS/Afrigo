@@ -1,0 +1,110 @@
+{
+  "name": "AppNotification",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Titre de la notification"
+    },
+    "message": {
+      "type": "string",
+      "description": "Contenu de la notification"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Image jointe (optionnel)"
+    },
+    "images": {
+      "type": "array",
+      "description": "Images jointes (optionnel)",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "delivery_status",
+        "new_product",
+        "promotion_active",
+        "promotion_ending",
+        "manual",
+        "order",
+        "cart_reminder"
+      ],
+      "description": "Type de notification"
+    },
+    "target_audience": {
+      "type": "string",
+      "enum": [
+        "all",
+        "specific"
+      ],
+      "default": "all",
+      "description": "Destinataires: tous les utilisateurs ou spécifiques"
+    },
+    "target_emails": {
+      "type": "array",
+      "description": "Emails ciblés si target_audience=specific",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "related_id": {
+      "type": "string",
+      "description": "ID de l'élément lié (commande/produit)"
+    },
+    "related_type": {
+      "type": "string",
+      "enum": [
+        "order",
+        "product",
+        "promotion",
+        "none",
+        "cart",
+        "return",
+        "refund"
+      ],
+      "description": "Type de l'élément lié"
+    },
+    "push_sent": {
+      "type": "boolean",
+      "description": "Déjà envoyée en push (anti-doublon)",
+      "default": false
+    },
+    "push_error": {
+      "type": "string",
+      "description": "Dernière erreur d'envoi push (Apple, Expo)"
+    },
+    "push_attempts": {
+      "type": "number",
+      "description": "Essais d'envoi push échoués (3 au plus)",
+      "default": 0
+    }
+  },
+  "required": [
+    "title",
+    "message",
+    "type"
+  ],
+  "rls": {
+    "read": {},
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

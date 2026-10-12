@@ -9,17 +9,21 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
-import { navigateWhenReady } from '@/navigation/navigationRef';
+import { markOpenedFromPush, navigateWhenReady } from '@/navigation/navigationRef';
 import {
   configureNotificationHandler,
   ensureAndroidChannel,
   registerPushToken,
   setAppBadgeCount,
-  unregisterPushToken,
 } from '@/services/pushNotifications';
+import {
+  disableBackgroundNotifications,
+  enableBackgroundNotifications,
+} from '@/services/backgroundNotifications';
 import { useNotificationsFeed } from '@/hooks/useNotificationsFeed';
 
 /**
@@ -49,11 +53,16 @@ const routeForPayload = (data: PushPayload | undefined) => {
   return () => navigateWhenReady('ClientTabs', { screen: 'NotificationsTab' });
 };
 
+/** Réenregistrement des jetons au retour dans l'app : au plus toutes les 10 min. */
+export const PUSH_REREGISTER_MS = 10 * 60 * 1000;
+
 export const usePushNotifications = () => {
   const { isAuthenticated, user } = useAuth();
   const queryClient = useQueryClient();
   const { badgeCount } = useNotificationsFeed();
   const handledColdStart = useRef(false);
+  /** Une même notification n'ouvre son écran qu'une fois (écouteur + démarrage à froid). */
+  const handledResponses = useRef(new Set<string>());
 
   // Handler d'affichage + canal Android : indispensables avant toute réception.
   useEffect(() => {
@@ -61,18 +70,38 @@ export const usePushNotifications = () => {
     void ensureAndroidChannel();
   }, []);
 
-  // Jeton push lié au compte connecté.
+  // Jetons push liés au compte connecté : à la connexion (avec la demande
+  // d'autorisation), puis au retour dans l'app et quand le système change le
+  // jeton (sans jamais redemander). La déconnexion les retire elle-même
+  // (AuthContext.logout), tant que la session est encore valide.
   useEffect(() => {
     if (!isAuthenticated || !user?.email) return;
+    let lastRun = Date.now();
     void registerPushToken().catch(() => null);
-  }, [isAuthenticated, user?.email]);
+    // Notifications app fermée : le téléphone réveille l'app pour relire le fil.
+    void enableBackgroundNotifications(user.email);
+    const again = (force = false) => {
+      if (!force && Date.now() - lastRun < PUSH_REREGISTER_MS) return;
+      lastRun = Date.now();
+      void registerPushToken({ prompt: false }).catch(() => null);
+    };
+    const appState = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      // Retour dans l'app : nouveautés affichées sans attendre le prochain passage.
+      void queryClient.invalidateQueries({ queryKey: ['notificationsFeed'] });
+      again();
+    });
+    const tokenChange = Notifications.addPushTokenListener(() => again(true));
+    return () => {
+      appState.remove();
+      tokenChange.remove();
+    };
+  }, [isAuthenticated, user?.email, queryClient]);
 
-  // Déconnexion → le device ne doit plus recevoir les push de ce compte.
+  // Déconnexion : plus de vérification en arrière-plan pour l'ancien compte.
   const wasAuthenticated = useRef(isAuthenticated);
   useEffect(() => {
-    if (wasAuthenticated.current && !isAuthenticated) {
-      void unregisterPushToken();
-    }
+    if (wasAuthenticated.current && !isAuthenticated) void disableBackgroundNotifications();
     wasAuthenticated.current = isAuthenticated;
   }, [isAuthenticated]);
 
@@ -84,6 +113,10 @@ export const usePushNotifications = () => {
     });
     const response = Notifications.addNotificationResponseReceivedListener((event) => {
       void queryClient.invalidateQueries({ queryKey: ['notificationsFeed'] });
+      const id = event?.notification?.request?.identifier;
+      if (id && handledResponses.current.has(id)) return;
+      if (id) handledResponses.current.add(id);
+      markOpenedFromPush();
       const data = event?.notification?.request?.content?.data as PushPayload | undefined;
       routeForPayload(data)();
     });
@@ -100,10 +133,15 @@ export const usePushNotifications = () => {
     void Notifications.getLastNotificationResponseAsync?.()
       .then((event) => {
         if (!event) return;
+        const id = event.notification?.request?.identifier;
+        if (id && handledResponses.current.has(id)) return;
+        if (id) handledResponses.current.add(id);
+        markOpenedFromPush();
         const data = event.notification?.request?.content?.data as PushPayload | undefined;
-        // Léger différé : le NavigationContainer n'est pas encore prêt au tout
-        // premier rendu.
-        setTimeout(routeForPayload(data), 400);
+        // Conteneur pas encore prêt : la navigation attend son onReady.
+        routeForPayload(data)();
+        // Sinon un rechargement (mise à jour OTA) rejouerait la même ouverture.
+        void Notifications.clearLastNotificationResponseAsync?.().catch(() => undefined);
       })
       .catch(() => {});
   }, []);

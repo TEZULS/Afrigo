@@ -1,0 +1,73 @@
+{
+  "name": "AdminActivityLog",
+  "type": "object",
+  "properties": {
+    "admin_email": {
+      "type": "string",
+      "description": "Email de l'administrateur"
+    },
+    "admin_name": {
+      "type": "string",
+      "description": "Nom ou identifiant de l'administrateur"
+    },
+    "action_type": {
+      "type": "string",
+      "enum": [
+        "login",
+        "logout",
+        "settings_change",
+        "message_reply",
+        "order_status_change",
+        "product_create",
+        "product_update",
+        "product_delete",
+        "return_process",
+        "refund_process",
+        "delivery_zone_change",
+        "loyalty_change",
+        "promo_code_change",
+        "user_management",
+        "broadcast_send",
+        "notification_send",
+        "other"
+      ],
+      "description": "Type d'action effectu\u00e9e"
+    },
+    "action_description": {
+      "type": "string",
+      "description": "Description d\u00e9taill\u00e9e de l'action"
+    },
+    "page": {
+      "type": "string",
+      "description": "Page admin o\u00f9 l'action a eu lieu"
+    }
+  },
+  "required": [
+    "admin_email",
+    "admin_name",
+    "action_type",
+    "action_description"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

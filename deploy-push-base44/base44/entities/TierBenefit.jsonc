@@ -1,0 +1,56 @@
+{
+  "name": "TierBenefit",
+  "type": "object",
+  "properties": {
+    "tier": {
+      "type": "string",
+      "enum": [
+        "argent",
+        "or",
+        "diamant"
+      ],
+      "description": "Niveau du client"
+    },
+    "title": {
+      "type": "string",
+      "description": "Titre de la m\u00e9daille"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description des avantages"
+    },
+    "badge_color": {
+      "type": "string",
+      "description": "Couleur de la m\u00e9daille",
+      "default": "#C0C0C0"
+    },
+    "icon": {
+      "type": "string",
+      "description": "Ic\u00f4ne de la m\u00e9daille",
+      "default": "medal"
+    }
+  },
+  "required": [
+    "tier",
+    "title",
+    "description"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

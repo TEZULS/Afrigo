@@ -1,0 +1,99 @@
+{
+  "name": "ProductRequest",
+  "type": "object",
+  "properties": {
+    "customer_email": {
+      "type": "string",
+      "description": "Email du client"
+    },
+    "customer_name": {
+      "type": "string",
+      "description": "Nom du client"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Nom du produit demand\u00e9"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description d\u00e9taill\u00e9e du produit"
+    },
+    "quantity": {
+      "type": "number",
+      "description": "Quantit\u00e9 souhait\u00e9e"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Photo du produit (optionnelle)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "completed"
+      ],
+      "default": "pending",
+      "description": "Statut de la demande"
+    },
+    "admin_response": {
+      "type": "string",
+      "description": "R\u00e9ponse de l'administrateur"
+    },
+    "estimated_price": {
+      "type": "number",
+      "description": "Prix estim\u00e9 par l'admin"
+    }
+  },
+  "required": [
+    "customer_email",
+    "customer_name",
+    "product_name",
+    "description",
+    "quantity"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

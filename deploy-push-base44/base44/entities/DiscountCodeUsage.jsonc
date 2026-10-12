@@ -1,0 +1,76 @@
+{
+  "name": "DiscountCodeUsage",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "description": "Code promo utilis\u00e9"
+    },
+    "customer_email": {
+      "type": "string",
+      "description": "Email du client"
+    },
+    "order_id": {
+      "type": "string",
+      "description": "ID de la commande"
+    },
+    "discount_amount": {
+      "type": "number",
+      "description": "Montant de la r\u00e9duction appliqu\u00e9e"
+    },
+    "used_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Date et heure d'utilisation"
+    }
+  },
+  "required": [
+    "code",
+    "customer_email",
+    "order_id",
+    "discount_amount"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

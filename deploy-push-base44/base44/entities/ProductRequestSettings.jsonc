@@ -1,0 +1,59 @@
+{
+  "name": "ProductRequestSettings",
+  "type": "object",
+  "properties": {
+    "is_enabled": {
+      "type": "boolean",
+      "description": "Syst\u00e8me de demandes activ\u00e9",
+      "default": true
+    },
+    "allowed_customers": {
+      "type": "array",
+      "description": "Liste des emails clients autoris\u00e9s (vide = tous)",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "allowed_tiers": {
+      "type": "array",
+      "description": "Niveaux de clients autoris\u00e9s (vide = tous)",
+      "items": {
+        "type": "string",
+        "enum": [
+          "normal",
+          "argent",
+          "or",
+          "diamant"
+        ]
+      },
+      "default": []
+    },
+    "message": {
+      "type": "string",
+      "description": "Message affich\u00e9 aux clients",
+      "default": "Vous ne trouvez pas un produit ? Demandez-le nous !"
+    }
+  },
+  "required": [
+    "is_enabled"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

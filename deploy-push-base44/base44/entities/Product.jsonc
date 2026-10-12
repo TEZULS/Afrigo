@@ -1,0 +1,279 @@
+{
+  "name": "Product",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Nom du produit"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description du produit"
+    },
+    "price": {
+      "type": "number",
+      "description": "Prix HT en euros"
+    },
+    "vat_rate": {
+      "type": "number",
+      "description": "Taux de TVA en pourcentage (0-100)",
+      "default": 0
+    },
+    "price_ttc": {
+      "type": "number",
+      "description": "Prix TTC (prix HT + TVA) affich\u00e9 aux clients",
+      "default": 0
+    },
+    "is_free": {
+      "type": "boolean",
+      "description": "Produit gratuit",
+      "default": false
+    },
+    "free_product_min_purchase": {
+      "type": "number",
+      "description": "Montant minimum d'achat pour obtenir le produit gratuit",
+      "default": 15
+    },
+    "free_product_limit_per_customer": {
+      "type": "number",
+      "description": "Nombre maximum de ce produit gratuit par client",
+      "default": 1
+    },
+    "allowed_tiers": {
+      "type": "array",
+      "description": "Niveaux de clients autoris\u00e9s \u00e0 acheter ce produit",
+      "items": {
+        "type": "string",
+        "enum": [
+          "normal",
+          "argent",
+          "or",
+          "diamant"
+        ]
+      },
+      "default": [
+        "normal",
+        "argent",
+        "or",
+        "diamant"
+      ]
+    },
+    "featured_groups": {
+      "type": "array",
+      "description": "Groupes de mise en avant",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "fruits_legumes",
+        "viandes_poissons",
+        "produits_laitiers",
+        "epices",
+        "boissons",
+        "surgeles",
+        "cosmetique",
+        "cosmetique_parfum",
+        "cosmetique_soins_corps",
+        "cosmetique_soins_cheveux",
+        "cosmetique_bebe",
+        "cosmetique_visage",
+        "cosmetique_soins_beaute",
+        "entretien_maison",
+        "sec",
+        "frais",
+        "ap\u00e9ritif",
+        "boissons_snacks"
+      ],
+      "description": "Cat\u00e9gorie du produit"
+    },
+    "country_of_origin": {
+      "type": "string",
+      "description": "Pays d'origine du produit"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "URL de l'image principale du produit"
+    },
+    "images": {
+      "type": "array",
+      "description": "URLs des images du produit",
+      "items": {
+        "type": "string"
+      }
+    },
+    "videos": {
+      "type": "array",
+      "description": "URLs des vid\u00e9os du produit",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "video_first": {
+      "type": "boolean",
+      "description": "Afficher la vid\u00e9o avant les images dans la galerie",
+      "default": false
+    },
+    "stock_quantity": {
+      "type": "number",
+      "description": "Quantit\u00e9 en stock"
+    },
+    "stock_unit": {
+      "type": "string",
+      "enum": [
+        "unite",
+        "kg",
+        "g",
+        "litre",
+        "ml",
+        "cl",
+        "dl",
+        "metre",
+        "lot",
+        "carton",
+        "pack",
+        "sache",
+        "sac",
+        "boite"
+      ],
+      "default": "unite",
+      "description": "Unit\u00e9 du stock"
+    },
+    "unit": {
+      "type": "string",
+      "enum": [
+        "piece",
+        "unite",
+        "kg",
+        "g",
+        "litre",
+        "ml",
+        "cl",
+        "dl",
+        "metre",
+        "bouteille",
+        "pack",
+        "lot",
+        "carton",
+        "sac",
+        "sache",
+        "boite"
+      ],
+      "description": "Unit\u00e9 de vente"
+    },
+    "variants": {
+      "type": "array",
+      "description": "Variantes du produit",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "taille",
+              "forme",
+              "poids",
+              "pack",
+              "lot",
+              "couleur",
+              "ap\u00e9ritif"
+            ]
+          },
+          "value": {
+            "type": "string"
+          },
+          "color_code": {
+            "type": "string"
+          },
+          "price_modifier": {
+            "type": "number"
+          },
+          "image_url": {
+            "type": "string"
+          },
+          "stock_quantity": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "is_promotion": {
+      "type": "boolean",
+      "description": "Produit en promotion"
+    },
+    "promotion_price": {
+      "type": "number",
+      "description": "Prix promotionnel"
+    },
+    "promotion_end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date de fin de promotion"
+    },
+    "expiration_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date d'expiration (admin seulement)"
+    },
+    "purchase_count": {
+      "type": "number",
+      "description": "Nombre d'achats",
+      "default": 0
+    },
+    "purchase_count_message": {
+      "type": "string",
+      "description": "Message personnalis\u00e9",
+      "default": "personnes ont achet\u00e9 ce produit"
+    },
+    "show_purchase_count": {
+      "type": "boolean",
+      "description": "Afficher le nombre d'achats",
+      "default": false
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Annonce active (visible dans la boutique)",
+      "default": true
+    },
+    "supplier_name": {
+      "type": "string",
+      "description": "Nom du fournisseur (admin seulement)"
+    },
+    "supplier_address": {
+      "type": "string",
+      "description": "Adresse du fournisseur (admin seulement)"
+    },
+    "supplier_phone": {
+      "type": "string",
+      "description": "T\u00e9l\u00e9phone du fournisseur (admin seulement)"
+    }
+  },
+  "required": [
+    "name",
+    "price",
+    "category",
+    "stock_quantity"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

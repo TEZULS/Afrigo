@@ -104,11 +104,16 @@ jest.mock('expo-notifications', () => ({
   setNotificationHandler: jest.fn(),
   setNotificationChannelAsync: jest.fn(async () => {}),
   getExpoPushTokenAsync: jest.fn(async () => ({ data: 'ExponentPushToken[test]' })),
+  getDevicePushTokenAsync: jest.fn(async () => ({ type: 'ios', data: 'apns-test-token' })),
   setBadgeCountAsync: jest.fn(async () => true),
   getLastNotificationResponseAsync: jest.fn(async () => null),
   scheduleNotificationAsync: jest.fn(async () => 'id'),
+  getPresentedNotificationsAsync: jest.fn(async () => []),
+  dismissNotificationAsync: jest.fn(async () => {}),
   addNotificationReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
   addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  addPushTokenListener: jest.fn(() => ({ remove: jest.fn() })),
+  clearLastNotificationResponseAsync: jest.fn(async () => {}),
   AndroidImportance: { MAX: 5, HIGH: 4, DEFAULT: 3 },
   AndroidNotificationVisibility: { PUBLIC: 1, PRIVATE: 0, SECRET: -1 },
 }));
@@ -209,6 +214,11 @@ jest.mock('expo-background-fetch', () => ({
   unregisterTaskAsync: jest.fn(async () => {}),
   BackgroundFetchStatus: { Denied: 1, Restricted: 2, Available: 3 },
   BackgroundFetchResult: { NoData: 1, NewData: 2, Failed: 3 },
+}));
+
+// Jeton natif : en test, on passe par le mock d'expo-notifications ci-dessus.
+jest.mock('@/services/devicePushToken', () => ({
+  fetchDevicePushToken: () => require('expo-notifications').getDevicePushTokenAsync(),
 }));
 
 // expo-location
