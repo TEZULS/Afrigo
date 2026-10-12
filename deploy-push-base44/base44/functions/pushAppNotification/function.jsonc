@@ -1,0 +1,4 @@
+{
+  "name": "pushAppNotification",
+  "entry": "entry.ts"
+}
