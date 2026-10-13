@@ -13,7 +13,7 @@
  */
 
 export type ReturnReason = 'wrong_product' | 'expired';
-export type ReturnResolution = 'exchange' | 'refund';
+export type ReturnResolution = 'exchange' | 'refund' | 'refund_keep';
 export type ReturnStatus = 'pending' | 'approved' | 'completed' | 'rejected';
 
 export const RETURN_REASONS: { value: ReturnReason; label: string }[] = [
@@ -28,7 +28,16 @@ export const RETURN_RESOLUTIONS: { value: ReturnResolution; label: string; hint:
     label: 'Remboursement',
     hint: 'Le montant est crédité sur votre portefeuille AfriGo.',
   },
+  {
+    value: 'refund_keep',
+    label: 'Garder le produit + remboursement',
+    hint: 'Vous gardez le produit et le montant est crédité sur votre portefeuille AfriGo.',
+  },
 ];
+
+/** Résolution avec remboursement sur le portefeuille (produit repris ou gardé). */
+export const isRefundResolution = (resolution?: string | null): boolean =>
+  resolution === 'refund' || resolution === 'refund_keep';
 
 /** Nombre minimum de photos prises en direct pour déposer une demande. */
 export const MIN_RETURN_PHOTOS = 2;
