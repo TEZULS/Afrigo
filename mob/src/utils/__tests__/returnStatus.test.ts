@@ -37,3 +37,10 @@ describe('returnStatus', () => {
     expect(MIN_RETURN_PHOTOS).toBe(2);
   });
 });
+
+describe('returnReasonLabel — anciennes demandes « Produit abîmé »', () => {
+  it('affiche toujours la mention des anciennes demandes', () => {
+    expect(returnReasonLabel('wrong_product', 'Produit abîmé — Emballage écrasé')).toBe('Produit abîmé');
+    expect(returnReasonLabel('wrong_product', 'Pas le bon lot')).toBe('Mauvais produit');
+  });
+});
