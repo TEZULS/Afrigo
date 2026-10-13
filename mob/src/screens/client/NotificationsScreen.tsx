@@ -75,6 +75,10 @@ export const NotificationsScreen: React.FC = () => {
       nav.navigate('ClientTabs', { screen: 'CartTab' });
       return;
     }
+    if (item.kind === 'refund') {
+      nav.navigate('MyRefunds');
+      return;
+    }
     if (item.kind === 'message') nav.navigate('Messages');
   };
 

@@ -1,0 +1,37 @@
+{
+  "name": "Notification remboursement effectué",
+  "description": "Notifie le client (cloche + push) quand un remboursement est effectué",
+  "trigger": {
+    "condition": "${ .trigger.data.status == \"completed\" and .trigger.old_data.status != \"completed\" }",
+    "config": {
+      "trigger_type": "entity",
+      "events": [
+        "create",
+        "update"
+      ],
+      "entity_name": "Refund"
+    }
+  },
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "notification_remboursement_effectue",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "run_function": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "createRefundNotification",
+            "args": {
+              "entity_id": "${ .trigger.entity_id }"
+            }
+          },
+          "then": "end"
+        }
+      }
+    ]
+  }
+}

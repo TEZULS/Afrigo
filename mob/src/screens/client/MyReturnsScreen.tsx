@@ -4,7 +4,7 @@ import { Pressable } from '@/components/ui/Pressable';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronRight, ArrowLeft, Repeat, Wallet } from 'lucide-react-native';
+import { ChevronRight, ArrowLeft, PackageCheck, Repeat, Wallet } from 'lucide-react-native';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/ui/Card';
@@ -19,7 +19,7 @@ import { palette } from '@/theme/tokens';
 import { formatDateTime, formatPrice } from '@/utils/format';
 import { serverDateMs } from '@/utils/serverDate';
 import {
-  RETURN_STATUS_DESCRIPTIONS,
+  returnStatusDescription,
   returnReasonLabel,
   returnStatusLabel,
 } from '@/utils/returnStatus';
@@ -34,6 +34,7 @@ interface ReturnRow {
   order_id?: string;
   status?: string;
   reason?: string;
+  description?: string;
   resolution_type?: string;
   refund_amount?: number;
   rejection_reason?: string | null;
@@ -95,7 +96,14 @@ export const MyReturnsScreen: React.FC = () => {
           contentContainerStyle={{ paddingVertical: 12, gap: 10, paddingBottom: PERSISTENT_NAV_HEIGHT + 16 }}
           renderItem={({ item }) => {
             const status = item.status ?? 'pending';
-            const ResolutionIcon = item.resolution_type === 'refund' ? Wallet : Repeat;
+            const ResolutionIcon =
+              item.resolution_type === 'refund_keep'
+                ? PackageCheck
+                : item.resolution_type === 'refund'
+                  ? Wallet
+                  : Repeat;
+            const refundSuffix =
+              (item.refund_amount ?? 0) > 0 ? ` · ${formatPrice(item.refund_amount ?? 0)}` : '';
             return (
               <Pressable
                 accessibilityRole="button"
@@ -124,23 +132,23 @@ export const MyReturnsScreen: React.FC = () => {
                   <View style={[styles.infoBox, { backgroundColor: colors.surfaceMuted }]}>
                     <Text style={[styles.infoLine, { color: colors.foreground }]}>
                       <Text style={{ fontWeight: '700' }}>Motif : </Text>
-                      {returnReasonLabel(item.reason)}
+                      {returnReasonLabel(item.reason, item.description)}
                     </Text>
-                    {item.resolution_type ? (
+                    {item.resolution_type && (item.status === 'approved' || item.status === 'completed') ? (
                       <View style={styles.resolutionRow}>
                         <ResolutionIcon size={14} color={colors.mutedForeground} />
                         <Text style={[styles.infoLine, { color: colors.foreground }]}>
-                          {item.resolution_type === 'refund'
-                            ? `Remboursement sur le portefeuille${
-                                (item.refund_amount ?? 0) > 0 ? ` · ${formatPrice(item.refund_amount ?? 0)}` : ''
-                              }`
-                            : 'Échange du produit'}
+                          {item.resolution_type === 'refund_keep'
+                            ? `Produit gardé + remboursement${refundSuffix}`
+                            : item.resolution_type === 'refund'
+                              ? `Remboursement sur le portefeuille${refundSuffix}`
+                              : 'Échange du produit'}
                         </Text>
                       </View>
                     ) : null}
                     {status !== 'rejected' ? (
                       <Text style={[styles.statusHint, { color: colors.mutedForeground }]}>
-                        {RETURN_STATUS_DESCRIPTIONS[status] ?? RETURN_STATUS_DESCRIPTIONS.pending}
+                        {returnStatusDescription(status, item.resolution_type)}
                       </Text>
                     ) : null}
                     {item.admin_message ? (

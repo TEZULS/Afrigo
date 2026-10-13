@@ -748,7 +748,9 @@ const returnStatusText = (r: ReturnRow): string => {
   switch (r.status) {
     case 'approved':
       return [
-        'Votre demande de retour a été acceptée : le livreur passera récupérer le produit.',
+        r.resolution_type === 'refund_keep'
+          ? 'Votre demande de retour a été acceptée : vous gardez le produit, le remboursement sera crédité sur votre portefeuille.'
+          : 'Votre demande de retour a été acceptée : le livreur passera récupérer le produit.',
         r.admin_message?.trim(),
       ]
         .filter(Boolean)
@@ -756,7 +758,7 @@ const returnStatusText = (r: ReturnRow): string => {
     case 'completed': {
       const refund = Number(r.refund_amount) || 0;
       const credit =
-        r.resolution_type === 'refund' && refund > 0
+        (r.resolution_type === 'refund' || r.resolution_type === 'refund_keep') && refund > 0
           ? ` ${refund.toFixed(2).replace('.', ',')} € ont été crédités sur votre portefeuille.`
           : '';
       return [`Votre retour est terminé.${credit}`, r.admin_message?.trim()].filter(Boolean).join(' ');

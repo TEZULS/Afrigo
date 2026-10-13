@@ -1,4 +1,5 @@
 import {
+  Banknote,
   Bell,
   MessageSquare,
   Package,
@@ -80,6 +81,8 @@ export const notificationVisual = (
       }
       return { Icon: RotateCcw, color: palette.orange[600], bg: palette.orange[50], label: 'Demande de retour' };
     }
+    case 'refund':
+      return { Icon: Banknote, color: palette.emerald[600], bg: palette.emerald[50], label: 'Remboursement' };
     default:
       return { Icon: Bell, color: palette.orange[600], bg: palette.orange[50], label: 'AfriGo' };
   }

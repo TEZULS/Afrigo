@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Package, Repeat, Wallet, MessageSquareText } from 'lucide-react-native';
+import { Package, PackageCheck, Repeat, Wallet, MessageSquareText } from 'lucide-react-native';
 import { Pressable } from '@/components/ui/Pressable';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
@@ -19,6 +19,7 @@ import { formatDateTime, formatPrice } from '@/utils/format';
 import {
   returnReasonLabel,
   returnResolutionLabel,
+  isRefundResolution,
   returnStatusLabel,
 } from '@/utils/returnStatus';
 import type { RootStackParamList } from '@/navigation/types';
@@ -67,7 +68,8 @@ export const ReturnDetailsScreen: React.FC = () => {
 
   const r = query.data;
   const status = r.status ?? 'pending';
-  const ResolutionIcon = r.resolution_type === 'refund' ? Wallet : Repeat;
+  const ResolutionIcon =
+    r.resolution_type === 'refund_keep' ? PackageCheck : r.resolution_type === 'refund' ? Wallet : Repeat;
 
   return (
     <Screen scroll refreshing={query.isFetching} onRefresh={() => void query.refetch()}>
@@ -114,9 +116,10 @@ export const ReturnDetailsScreen: React.FC = () => {
         ) : null}
         <View style={[styles.infoRow, styles.infoRowBorder, { borderTopColor: colors.border }]}>
           <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Raison du retour</Text>
-          <Text style={{ color: colors.foreground, fontWeight: '600' }}>{returnReasonLabel(r.reason)}</Text>
+          <Text style={{ color: colors.foreground, fontWeight: '600' }}>{returnReasonLabel(r.reason, r.description)}</Text>
         </View>
-        {r.resolution_type ? (
+        {/* Choisie par l'admin : affichée une fois la demande traitée. */}
+        {r.resolution_type && (status === 'approved' || status === 'completed') ? (
           <View style={[styles.infoRow, styles.infoRowBorder, { borderTopColor: colors.border }]}>
             <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Résolution</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
@@ -133,7 +136,10 @@ export const ReturnDetailsScreen: React.FC = () => {
             <Text style={{ color: colors.foreground, marginTop: 4, lineHeight: 20 }}>{r.description}</Text>
           </View>
         ) : null}
-        {(r.refund_amount ?? 0) > 0 ? (
+        {/* Montant affiché seulement quand l'admin a choisi le remboursement. */}
+        {(r.refund_amount ?? 0) > 0 &&
+        isRefundResolution(r.resolution_type) &&
+        (status === 'approved' || status === 'completed') ? (
           <View style={[styles.refundBox, { backgroundColor: palette.emerald[50] }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Wallet size={14} color={palette.emerald[700]} />
