@@ -76,7 +76,8 @@ describe('MyReturnsScreen', () => {
     expect(screen.getAllByText('En attente').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Terminé').length).toBeGreaterThan(0);
     expect(screen.getByText('Refusé')).toBeTruthy();
-    expect(screen.getByText('Échange du produit')).toBeTruthy();
+    // Résolution choisie par l'admin : masquée tant que la demande est en attente.
+    expect(screen.queryByText('Échange du produit')).toBeNull();
     expect(screen.getByText('Remboursement sur le portefeuille · 29,90 €')).toBeTruthy();
     expect(screen.getByText(/Message d’AfriGo : Toutes est bon/)).toBeTruthy();
   });
