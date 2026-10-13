@@ -33,7 +33,7 @@ import { useNotificationsFeed } from '@/hooks/useNotificationsFeed';
 interface PushPayload {
   notificationId?: string;
   type?: string;
-  relatedType?: 'order' | 'product' | 'promotion' | 'none' | 'cart' | 'return';
+  relatedType?: 'order' | 'product' | 'promotion' | 'none' | 'cart' | 'return' | 'refund';
   relatedId?: string;
 }
 
@@ -43,6 +43,9 @@ const routeForPayload = (data: PushPayload | undefined) => {
   }
   if (data?.relatedType === 'return' && data.relatedId) {
     return () => navigateWhenReady('ReturnDetails', { id: String(data.relatedId) });
+  }
+  if (data?.relatedType === 'refund') {
+    return () => navigateWhenReady('MyRefunds');
   }
   if (data?.relatedType === 'cart') {
     return () => navigateWhenReady('ClientTabs', { screen: 'CartTab' });
