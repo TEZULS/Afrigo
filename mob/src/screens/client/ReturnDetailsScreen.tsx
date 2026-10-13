@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Package, Repeat, Wallet, MessageSquareText } from 'lucide-react-native';
+import { Package, PackageCheck, Repeat, Wallet, MessageSquareText } from 'lucide-react-native';
 import { Pressable } from '@/components/ui/Pressable';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
@@ -67,7 +67,8 @@ export const ReturnDetailsScreen: React.FC = () => {
 
   const r = query.data;
   const status = r.status ?? 'pending';
-  const ResolutionIcon = r.resolution_type === 'refund' ? Wallet : Repeat;
+  const ResolutionIcon =
+    r.resolution_type === 'refund_keep' ? PackageCheck : r.resolution_type === 'refund' ? Wallet : Repeat;
 
   return (
     <Screen scroll refreshing={query.isFetching} onRefresh={() => void query.refetch()}>
