@@ -19,6 +19,7 @@ import { formatDateTime, formatPrice } from '@/utils/format';
 import {
   returnReasonLabel,
   returnResolutionLabel,
+  isRefundResolution,
   returnStatusLabel,
 } from '@/utils/returnStatus';
 import type { RootStackParamList } from '@/navigation/types';
@@ -115,9 +116,10 @@ export const ReturnDetailsScreen: React.FC = () => {
         ) : null}
         <View style={[styles.infoRow, styles.infoRowBorder, { borderTopColor: colors.border }]}>
           <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Raison du retour</Text>
-          <Text style={{ color: colors.foreground, fontWeight: '600' }}>{returnReasonLabel(r.reason)}</Text>
+          <Text style={{ color: colors.foreground, fontWeight: '600' }}>{returnReasonLabel(r.reason, r.description)}</Text>
         </View>
-        {r.resolution_type ? (
+        {/* Choisie par l'admin : affichée une fois la demande traitée. */}
+        {r.resolution_type && (status === 'approved' || status === 'completed') ? (
           <View style={[styles.infoRow, styles.infoRowBorder, { borderTopColor: colors.border }]}>
             <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Résolution</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
@@ -134,7 +136,10 @@ export const ReturnDetailsScreen: React.FC = () => {
             <Text style={{ color: colors.foreground, marginTop: 4, lineHeight: 20 }}>{r.description}</Text>
           </View>
         ) : null}
-        {(r.refund_amount ?? 0) > 0 ? (
+        {/* Montant affiché seulement quand l'admin a choisi le remboursement. */}
+        {(r.refund_amount ?? 0) > 0 &&
+        isRefundResolution(r.resolution_type) &&
+        (status === 'approved' || status === 'completed') ? (
           <View style={[styles.refundBox, { backgroundColor: palette.emerald[50] }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Wallet size={14} color={palette.emerald[700]} />
