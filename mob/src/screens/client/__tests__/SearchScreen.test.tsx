@@ -32,6 +32,33 @@ jest.mock('@/api/entities', () => ({
   InvokeLLM: jest.fn(),
 }));
 
+/* Dictée simulée : `mockSpeechEmit('result', …)` rejoue les événements natifs. */
+const mockSpeechListeners: Record<string, ((e: unknown) => void)[]> = {};
+const mockSpeechEmit = (name: string, e: unknown = {}) =>
+  (mockSpeechListeners[name] ?? []).forEach((l) => l(e));
+const mockSpeechStart = jest.fn();
+const mockSpeechStop = jest.fn();
+jest.mock('expo-speech-recognition', () => ({
+  ExpoSpeechRecognitionModule: {
+    requestPermissionsAsync: jest.fn(async () => ({ granted: true })),
+    getPermissionsAsync: jest.fn(async () => ({ granted: true, canAskAgain: true })),
+    isRecognitionAvailable: jest.fn(() => true),
+    getSpeechRecognitionServices: jest.fn(() => [] as string[]),
+    start: (...args: unknown[]) => mockSpeechStart(...args),
+    stop: () => mockSpeechStop(),
+    abort: jest.fn(),
+    addListener: (name: string, l: (e: unknown) => void) => {
+      (mockSpeechListeners[name] ??= []).push(l);
+      return {
+        remove: () => {
+          mockSpeechListeners[name] = (mockSpeechListeners[name] ?? []).filter((x) => x !== l);
+        },
+      };
+    },
+  },
+}));
+
+import { act } from '@testing-library/react-native';
 import { SearchScreen } from '../SearchScreen';
 
 const wrap = (ui: React.ReactElement) => <NavigationContainer>{ui}</NavigationContainer>;
@@ -43,6 +70,29 @@ describe('SearchScreen', () => {
     useSearchHistory.setState({ terms: [] });
     /* L'historique est persisté : on vide aussi le stockage entre deux tests. */
     kv.remove(STORAGE_KEYS.SEARCH_HISTORY);
+  });
+
+  it('cherche à la voix le produit dicté par son titre', async () => {
+    renderWithProviders(wrap(<SearchScreen />));
+    fireEvent.press(screen.getByTestId('search-voice'));
+    await waitFor(() => expect(mockSpeechStart).toHaveBeenCalled());
+    expect(mockSpeechStart.mock.calls[0][0]).toMatchObject({ lang: 'fr-FR' });
+    expect(screen.getByLabelText('Arrêter la recherche vocale')).toBeTruthy();
+
+    act(() => {
+      mockSpeechEmit('result', { isFinal: false, results: [{ transcript: 'beurre' }] });
+    });
+    // Fenêtre centrale : micro + « Parlez » + dictée en direct.
+    expect(screen.getByTestId('voice-overlay')).toBeTruthy();
+    expect(screen.getByText('Parlez')).toBeTruthy();
+    expect(screen.getByText('beurre')).toBeTruthy();
+
+    act(() => {
+      mockSpeechEmit('result', { isFinal: true, results: [{ transcript: 'Beurre de karité.' }] });
+      mockSpeechEmit('end');
+    });
+    expect(useHomeSearch.getState().query).toBe('Beurre de karité');
+    expect(mockNavigate).toHaveBeenCalledWith('ClientTabs', { screen: 'HomeTab' });
   });
 
   it('suggère les produits du catalogue au fil de la saisie', async () => {

@@ -29,6 +29,8 @@
         "NSCameraUsageDescription": "AfriGo utilise l'appareil photo pour rechercher des produits par image et photographier des retours.",
         "NSPhotoLibraryUsageDescription": "AfriGo a besoin d'accéder à vos photos pour la recherche par image et les preuves de retour.",
         "NSPhotoLibraryAddUsageDescription": "AfriGo enregistre vos QR codes et bordereaux de commande.",
+        "NSMicrophoneUsageDescription": "AfriGo utilise le micro pour rechercher un produit à la voix.",
+        "NSSpeechRecognitionUsageDescription": "AfriGo transforme votre voix en texte pour rechercher un produit par son nom.",
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "remote-notification"
@@ -46,10 +48,10 @@
         "android.permission.INTERNET",
         "android.permission.CAMERA",
         "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO",
         "android.permission.VIBRATE"
       ],
       "blockedPermissions": [
-        "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
@@ -125,7 +127,15 @@
         }
       ],
       "expo-font",
-      "expo-background-fetch"
+      "expo-background-fetch",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "AfriGo utilise le micro pour rechercher un produit à la voix.",
+          "speechRecognitionPermission": "AfriGo transforme votre voix en texte pour rechercher un produit par son nom.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox", "com.google.android.tts"]
+        }
+      ]
     ],
     "extra": {
       "router": {},
