@@ -16,8 +16,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   ArrowLeft,
   ArrowUpLeft,
-  Camera,
   Clock,
+  Mic,
   Search,
   ShoppingBasket,
   X,
@@ -30,7 +30,8 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { palette } from '@/theme/tokens';
 import { useHomeSearch } from '@/stores/homeSearch';
 import { useSearchHistory } from '@/stores/searchHistory';
-import { useImageProductSearch } from '@/hooks/useImageProductSearch';
+import { useVoiceProductSearch } from '@/hooks/useVoiceProductSearch';
+import { VoiceListeningOverlay } from '@/components/search/VoiceListeningOverlay';
 import { findMatchIndex } from '@/utils/searchText';
 import type { RootStackParamList } from '@/navigation/types';
 
@@ -90,7 +91,18 @@ export const SearchScreen: React.FC = () => {
     [applyQuery, nav, pushHistory],
   );
 
-  const { scanning, startImageSearch } = useImageProductSearch(runSearch);
+  /** Titres du catalogue : aident la dictée à reconnaître les noms de marque. */
+  const voiceHints = useMemo(() => (data ?? []).map((p) => p.name ?? ''), [data]);
+  /** La phrase dictée reste dans le champ, puis part dans la recherche. */
+  const onVoiceDetected = useCallback(
+    (text: string) => {
+      setQuery(text);
+      runSearch(text);
+    },
+    [runSearch],
+  );
+  const { listening, transcript, startVoiceSearch, stopVoiceSearch, cancelVoiceSearch } =
+    useVoiceProductSearch(onVoiceDetected, voiceHints);
 
   const suggestions = useMemo((): Suggestion[] => {
     const q = query.trim();
@@ -251,17 +263,13 @@ export const SearchScreen: React.FC = () => {
           ) : (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Rechercher avec une photo"
-              disabled={scanning}
-              onPress={startImageSearch}
+              accessibilityLabel="Rechercher à la voix"
+              onPress={() => void startVoiceSearch()}
               hitSlop={10}
               style={styles.pillBtn}
+              testID="search-voice"
             >
-              {scanning ? (
-                <ActivityIndicator size="small" color={palette.brand.orange} />
-              ) : (
-                <Camera size={18} color={palette.slate[500]} />
-              )}
+              <Mic size={18} color={palette.slate[500]} />
             </Pressable>
           )}
         </View>
@@ -306,6 +314,12 @@ export const SearchScreen: React.FC = () => {
           </View>
         }
         contentContainerStyle={styles.listContent}
+      />
+      <VoiceListeningOverlay
+        visible={listening}
+        transcript={transcript}
+        onStop={stopVoiceSearch}
+        onCancel={cancelVoiceSearch}
       />
     </Screen>
   );
