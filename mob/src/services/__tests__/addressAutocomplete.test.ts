@@ -88,6 +88,14 @@ describe('searchAddresses', () => {
     expect(partial).not.toContain('postcode=');
   });
 
+  it('classe en tête les adresses proches du client', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue(okResponse([]));
+    await searchAddresses('17 boulevard', { near: { lat: 48.96, lon: 4.36 } });
+    const url = (global.fetch as jest.Mock).mock.calls[0][0] as string;
+    expect(url).toContain('lat=48.96');
+    expect(url).toContain('lon=4.36');
+  });
+
   it('renvoie une liste vide si la BAN est injoignable (saisie manuelle possible)', async () => {
     (global.fetch as jest.Mock).mockRejectedValue(new Error('Network request failed'));
     await expect(searchAddresses('12 rue de la paix')).resolves.toEqual([]);
