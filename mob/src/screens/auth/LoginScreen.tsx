@@ -155,6 +155,8 @@ export const LoginScreen: React.FC = () => {
   const applyCitySuggestion = useCallback((s: AddressSuggestion) => {
     if (s.city) setCity(s.city);
     if (s.postalCode) setPostalCode(s.postalCode);
+    setCityError(null);
+    if (s.postalCode) setPostalCodeError(null);
     Keyboard.dismiss();
   }, []);
 
@@ -163,6 +165,9 @@ export const LoginScreen: React.FC = () => {
     if (s.street) setAddress(s.street);
     if (s.postalCode) setPostalCode(s.postalCode);
     if (s.city) setCity(s.city);
+    setAddressError(null);
+    if (s.postalCode) setPostalCodeError(null);
+    if (s.city) setCityError(null);
     Keyboard.dismiss();
   }, []);
 
