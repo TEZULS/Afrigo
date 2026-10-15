@@ -53,6 +53,11 @@ const fillCivilStatus = () => {
   fireEvent.press(screen.getByLabelText('Mme'));
   fireEvent.changeText(screen.getByPlaceholderText('Marie'), 'Salma');
   fireEvent.changeText(screen.getByPlaceholderText('Dupont'), 'Timo');
+  fireEvent.changeText(screen.getByTestId('register-phone'), '0772211798');
+  fireEvent.changeText(screen.getByTestId('register-phone-confirm'), '+33772211798');
+  fireEvent.changeText(screen.getByPlaceholderText('12 rue de la République'), '4 Avenue de Paris');
+  fireEvent.changeText(screen.getByPlaceholderText('51000'), '51000');
+  fireEvent.changeText(screen.getByPlaceholderText('Châlons-en-Champagne'), 'Châlons-en-Champagne');
 };
 
 const fillRegisterForm = (password: string) => {
@@ -66,6 +71,44 @@ describe('LoginScreen — inscription', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRegister.mockResolvedValue({ status: 'verification_required' });
+  });
+
+  it('préremplit +33 et regroupe les chiffres du téléphone par deux', async () => {
+    renderWithProviders(wrap(<LoginScreen />));
+    await waitFor(() => expect(screen.getByText('Création de compte')).toBeTruthy());
+
+    const phone = screen.getByTestId('register-phone');
+    expect(phone.props.value).toBe('+33 ');
+    fireEvent.changeText(phone, '+33772211798');
+    expect(screen.getByTestId('register-phone').props.value).toBe('+33 7 72 21 17 98');
+  });
+
+  it('exige adresse, code postal et ville', async () => {
+    renderWithProviders(wrap(<LoginScreen />));
+    await waitFor(() => expect(screen.getByText('Création de compte')).toBeTruthy());
+
+    fillRegisterForm('Kanesamas');
+    fireEvent.changeText(screen.getByPlaceholderText('12 rue de la République'), '');
+    fireEvent.changeText(screen.getByPlaceholderText('51000'), '510');
+    fireEvent.changeText(screen.getByPlaceholderText('Châlons-en-Champagne'), '');
+    fireEvent.press(screen.getByText('Créer mon compte'));
+
+    await waitFor(() => expect(screen.getByText('Saisissez votre adresse.')).toBeTruthy());
+    expect(screen.getByText('Code postal à 5 chiffres.')).toBeTruthy();
+    expect(screen.getByText('Saisissez votre ville.')).toBeTruthy();
+    expect(mockRegister).not.toHaveBeenCalled();
+  });
+
+  it('refuse deux numéros de téléphone différents', async () => {
+    renderWithProviders(wrap(<LoginScreen />));
+    await waitFor(() => expect(screen.getByText('Création de compte')).toBeTruthy());
+
+    fillRegisterForm('Kanesamas');
+    fireEvent.changeText(screen.getByTestId('register-phone-confirm'), '0772211799');
+    fireEvent.press(screen.getByText('Créer mon compte'));
+
+    await waitFor(() => expect(screen.getByText('Les numéros ne correspondent pas.')).toBeTruthy());
+    expect(mockRegister).not.toHaveBeenCalled();
   });
 
   it('refuse un mot de passe de 7 caractères en français, sans appeler le serveur', async () => {
@@ -222,6 +265,15 @@ describe('LoginScreen — clavier et champs du formulaire', () => {
     jest.restoreAllMocks();
   });
 
+  it('inscription : Adresse, puis Code postal, puis Ville', async () => {
+    renderWithProviders(wrap(<LoginScreen />));
+    await waitFor(() => expect(screen.getByText('Création de compte')).toBeTruthy());
+    const order = screen
+      .getAllByText(/^(Adresse|Code postal|Ville)$/)
+      .map((node) => node.props.children as string);
+    expect(order).toEqual(['Adresse', 'Code postal', 'Ville']);
+  });
+
   it('remonte le champ Adresse au-dessus du clavier une fois celui-ci ouvert', async () => {
     renderWithProviders(wrap(<LoginScreen />));
     await waitFor(() => expect(screen.getByText('Création de compte')).toBeTruthy());
@@ -265,7 +317,7 @@ describe('LoginScreen — clavier et champs du formulaire', () => {
     await waitFor(() => expect(screen.getByText('Création de compte')).toBeTruthy());
 
     fireEvent(screen.getByTestId('auth-fields'), 'layout', layout(300));
-    const phone = screen.getByPlaceholderText('06 12 34 56 78');
+    const phone = screen.getByTestId('register-phone');
     measureField(phone, 400);
 
     fireEvent(phone, 'focus');

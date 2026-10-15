@@ -29,6 +29,13 @@ import {
   MIN_REGISTER_PASSWORD_LENGTH,
   OTP_CODE_LENGTH,
 } from '@/screens/auth/loginValidation';
+import {
+  PHONE_PREFIX,
+  formatFrenchPhone,
+  isCompleteFrenchPhone,
+  validatePhone,
+  validatePhoneConfirmation,
+} from '@/utils/phone';
 import { SocialSignInButtons } from '@/screens/auth/SocialSignInButtons';
 import { useKeyboardAwareFields } from '@/hooks/useKeyboardAwareFields';
 import {
@@ -76,10 +83,18 @@ export const LoginScreen: React.FC = () => {
   const [civility, setCivility] = useState<Civility | ''>('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [phone, setPhone] = useState('');
+  /** Téléphone saisi deux fois, +33 déjà en place, chiffres regroupés par deux. */
+  const [phone, setPhone] = useState(PHONE_PREFIX);
+  const [phoneConfirm, setPhoneConfirm] = useState(PHONE_PREFIX);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [phoneConfirmError, setPhoneConfirmError] = useState<string | null>(null);
   const [address, setAddress] = useState('');
   const [postalCode, setPostalCode] = useState('');
   const [city, setCity] = useState('');
+  /** Adresse obligatoire à l'inscription, comme tous les autres champs. */
+  const [addressError, setAddressError] = useState<string | null>(null);
+  const [postalCodeError, setPostalCodeError] = useState<string | null>(null);
+  const [cityError, setCityError] = useState<string | null>(null);
   const [otpCode, setOtpCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
@@ -99,7 +114,7 @@ export const LoginScreen: React.FC = () => {
       civility: civility || undefined,
       firstName: firstName.trim() || undefined,
       lastName: lastName.trim() || undefined,
-      phone: phone.trim() || undefined,
+      phone: isCompleteFrenchPhone(phone) ? formatFrenchPhone(phone) : undefined,
       address: address.trim() || undefined,
       postalCode: postalCode.trim() || undefined,
       city: city.trim() || undefined,
@@ -140,6 +155,8 @@ export const LoginScreen: React.FC = () => {
   const applyCitySuggestion = useCallback((s: AddressSuggestion) => {
     if (s.city) setCity(s.city);
     if (s.postalCode) setPostalCode(s.postalCode);
+    setCityError(null);
+    if (s.postalCode) setPostalCodeError(null);
     Keyboard.dismiss();
   }, []);
 
@@ -148,6 +165,9 @@ export const LoginScreen: React.FC = () => {
     if (s.street) setAddress(s.street);
     if (s.postalCode) setPostalCode(s.postalCode);
     if (s.city) setCity(s.city);
+    setAddressError(null);
+    if (s.postalCode) setPostalCodeError(null);
+    if (s.city) setCityError(null);
     Keyboard.dismiss();
   }, []);
 
@@ -178,7 +198,26 @@ export const LoginScreen: React.FC = () => {
       setCivilityError(civil.civilityError);
       setFirstNameError(civil.firstNameError);
       setLastNameError(civil.lastNameError);
+      const phoneErr = validatePhone(phone);
+      const phoneConfirmErr = phoneErr ? null : validatePhoneConfirmation(phone, phoneConfirm);
+      setPhoneError(phoneErr);
+      setPhoneConfirmError(phoneConfirmErr);
+      const addressErr = address.trim() ? null : 'Saisissez votre adresse.';
+      const postalCodeErr = /^[0-9]{5}$/.test(postalCode.trim())
+        ? null
+        : postalCode.trim()
+          ? 'Code postal à 5 chiffres.'
+          : 'Saisissez votre code postal.';
+      const cityErr = city.trim() ? null : 'Saisissez votre ville.';
+      setAddressError(addressErr);
+      setPostalCodeError(postalCodeErr);
+      setCityError(cityErr);
       if (
+        addressErr ||
+        postalCodeErr ||
+        cityErr ||
+        phoneErr ||
+        phoneConfirmErr ||
         v.emailError ||
         v.passwordError ||
         v.confirmError ||
@@ -294,6 +333,11 @@ export const LoginScreen: React.FC = () => {
     civility,
     firstName,
     lastName,
+    phone,
+    phoneConfirm,
+    address,
+    postalCode,
+    city,
     registerProfile,
     loginWithEmailPassword,
     registerWithEmailPassword,
@@ -409,14 +453,16 @@ export const LoginScreen: React.FC = () => {
               paddingTop: topPad,
               paddingHorizontal: H_PAD,
               /*
-                Réserve explicite pour le clavier sur iOS (sur Android c'est
-                `adjustResize` qui rétrécit déjà la fenêtre). Sans cette marge,
+                Réserve explicite pour le clavier, sur iOS comme sur Android :
+                en affichage bord à bord (Android 15+, API 35/36), `adjustResize`
+                ne rétrécit plus la fenêtre et le clavier recouvrait la case
+                Ville. Sans cette marge,
                 `scrollTo` est borné par la hauteur du contenu et ne peut pas
                 remonter les derniers champs au-dessus du clavier.
                 On préfère cette réserve à `automaticallyAdjustKeyboardInsets`,
                 dont l'inset arrive après le `onFocus` — donc trop tard.
               */
-              paddingBottom: 8 + (Platform.OS === 'ios' ? keyboardHeight : 0),
+              paddingBottom: 8 + keyboardHeight,
             },
           ]}
           keyboardShouldPersistTaps="always"
@@ -678,49 +724,82 @@ export const LoginScreen: React.FC = () => {
                     <Input
                       label="Téléphone"
                       value={phone}
-                      onChangeText={setPhone}
-                      placeholder="06 12 34 56 78"
+                      onChangeText={(v) => {
+                        setPhone(formatFrenchPhone(v));
+                        if (phoneError) setPhoneError(null);
+                      }}
+                      placeholder="+33 6 12 34 56 78"
                       keyboardType="phone-pad"
+                      textContentType="telephoneNumber"
+                      error={phoneError ?? undefined}
+                      testID="register-phone"
                       onContainerLayout={onFieldLayout('phone')}
                       onFocus={focusField('phone')}
                     />
+                    <Input
+                      label="Confirmer le téléphone"
+                      value={phoneConfirm}
+                      onChangeText={(v) => {
+                        setPhoneConfirm(formatFrenchPhone(v));
+                        if (phoneConfirmError) setPhoneConfirmError(null);
+                      }}
+                      placeholder="+33 6 12 34 56 78"
+                      keyboardType="phone-pad"
+                      error={phoneConfirmError ?? undefined}
+                      testID="register-phone-confirm"
+                      onContainerLayout={onFieldLayout('phoneConfirm')}
+                      onFocus={focusField('phoneConfirm')}
+                    />
                     {/*
-                      Ville et code postal AVANT l'adresse : c'est le code
-                      postal qui restreint la recherche d'adresse à la commune.
-                      Dans l'autre sens, « 12 rue de la République » renvoie
-                      Toulouse, Argenteuil, Nîmes… et jamais la bonne ville.
+                      Adresse, puis code postal, puis ville (ordre demandé le
+                      2026-09-28). Choisir une adresse suggérée remplit aussi le
+                      code postal et la ville ; un code postal déjà saisi
+                      restreint les suggestions à la commune.
                     */}
                     <AddressAutocomplete
-                      kind="city"
-                      value={city}
-                      onChangeText={setCity}
-                      onSelectSuggestion={applyCitySuggestion}
-                      onContainerLayout={onFieldLayout('city')}
-                      onFocus={focusField('city')}
+                      value={address}
+                      onChangeText={(v) => {
+                        setAddress(v);
+                        if (addressError) setAddressError(null);
+                      }}
+                      error={addressError ?? undefined}
+                      onSelectSuggestion={applyAddressSuggestion}
+                      postalCode={postalCode}
+                      onContainerLayout={onFieldLayout('address')}
+                      onFocus={focusField('address')}
                     />
                     <Input
                       label="Code postal"
                       value={postalCode}
-                      onChangeText={setPostalCode}
+                      onChangeText={(v) => {
+                        setPostalCode(v);
+                        if (postalCodeError) setPostalCodeError(null);
+                      }}
+                      error={postalCodeError ?? undefined}
+                      maxLength={5}
                       placeholder="51000"
                       keyboardType="numeric"
                       onContainerLayout={onFieldLayout('postalCode')}
                       onFocus={focusField('postalCode')}
                     />
                     <AddressAutocomplete
-                      value={address}
-                      onChangeText={setAddress}
-                      onSelectSuggestion={applyAddressSuggestion}
-                      postalCode={postalCode}
-                      onContainerLayout={onFieldLayout('address')}
-                      onFocus={focusField('address')}
+                      kind="city"
+                      value={city}
+                      onChangeText={(v) => {
+                        setCity(v);
+                        if (cityError) setCityError(null);
+                      }}
+                      error={cityError ?? undefined}
+                      onSelectSuggestion={applyCitySuggestion}
+                      onContainerLayout={onFieldLayout('city')}
+                      onFocus={focusField('city')}
                     />
                   </>
                 ) : null}
               </View>
 
               {mode === 'login' && !showForgot ? (
-                <View style={styles.linksRow}>
+                <View style={[styles.linksRow, styles.linksBlock]} testID="auth-links">
                   <Pressable onPress={() => setShowForgot(true)}>
                     <Text style={[styles.linkMuted, { color: muted }]}>Mot de passe oublié ?</Text>
                   </Pressable>
@@ -733,7 +812,11 @@ export const LoginScreen: React.FC = () => {
               ) : null}
 
               {mode === 'register' ? (
-                <Pressable onPress={() => setMode('login')} style={{ marginTop: 14 }}>
+                <Pressable
+                  onPress={() => setMode('login')}
+                  style={styles.linksBlock}
+                  testID="auth-link-login"
+                >
                   <Text style={[styles.linkMuted, { color: muted }]}>
                     Déjà un compte ?{' '}
                     <Text style={{ color: fg, fontWeight: '700' }}>Se connecter</Text>
@@ -894,10 +977,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginTop: 14,
     flexWrap: 'wrap',
     gap: 12,
   },
+  /**
+   * « Mot de passe oublié ? / Créer un compte » et « Déjà un compte ? » :
+   * remontés près des champs et décollés du bloc du bouton, dont le trait et
+   * l'ombre passaient sur le texte.
+   */
+  linksBlock: { marginTop: 8, marginBottom: 22 },
   linkMuted: { fontSize: 14, fontWeight: '500', flexShrink: 1 },
 
   forgotBox: {

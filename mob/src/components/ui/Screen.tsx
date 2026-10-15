@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   View,
@@ -34,11 +33,8 @@ interface ScreenProps {
    */
   header?: React.ReactNode;
   /**
-   * Force un `behavior` actif pour le KeyboardAvoidingView, y compris sur
-   * Android (par défaut on laisse `adjustResize` faire le travail). À
-   * activer pour les formulaires avec beaucoup de champs en bas (Login,
-   * Register, ProfileEdit) sinon les inputs du bas sont masqués par le
-   * clavier malgré le scroll.
+   * `behavior` du KeyboardAvoidingView (`padding` par défaut, iOS comme
+   * Android).
    *
    * `'none'` désactive complètement le KeyboardAvoidingView : à utiliser
    * quand l'écran gère lui-même l'évitement du clavier (par exemple un
@@ -87,17 +83,17 @@ export const Screen: React.FC<ScreenProps> = ({
     <SafeAreaView edges={edges} style={[styles.safe, { backgroundColor: background }]}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       {/*
-        Par défaut : Android laisse `windowSoftInputMode="adjustResize"` agir
-        nativement (`behavior=undefined`) ; iOS utilise `padding`. Pour les
-        formulaires longs (Login/Register/ProfileEdit) on peut forcer un
-        `keyboardBehavior` actif sur les deux plateformes via la prop.
+        `padding` par défaut sur les deux plateformes : en affichage bord à
+        bord (Android 15+, API 35/36), `adjustResize` ne rétrécit plus la
+        fenêtre et le clavier recouvrait les champs du bas. `padding` mesure le
+        recouvrement réel : rien n'est ajouté si la fenêtre a déjà rétréci.
       */}
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={
           keyboardBehavior === 'none'
             ? undefined
-            : (keyboardBehavior ?? (Platform.OS === 'ios' ? 'padding' : undefined))
+            : (keyboardBehavior ?? 'padding')
         }
         keyboardVerticalOffset={keyboardVerticalOffset}
       >
