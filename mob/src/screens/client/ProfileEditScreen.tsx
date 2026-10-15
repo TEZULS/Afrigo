@@ -295,21 +295,15 @@ export const ProfileEditScreen: React.FC = () => {
           onSelectSuggestion={applyAddressSuggestion}
           postalCode={form.postal_code}
         />
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Input
-            label="Code postal"
-            value={form.postal_code}
-            onChangeText={(v) => update('postal_code', v)}
-            keyboardType="numeric"
-            containerStyle={{ flex: 1 }}
-          />
-          <Input
-            label="Ville"
-            value={form.city}
-            onChangeText={(v) => update('city', v)}
-            containerStyle={{ flex: 1.4 }}
-          />
-        </View>
+        {/* Une case par ligne : la ville entière reste lisible (Android). */}
+        <Input
+          label="Code postal"
+          value={form.postal_code}
+          onChangeText={(v) => update('postal_code', v)}
+          keyboardType="numeric"
+          maxLength={5}
+        />
+        <Input label="Ville" value={form.city} onChangeText={(v) => update('city', v)} />
       </Card>
 
       <Button
