@@ -453,14 +453,16 @@ export const LoginScreen: React.FC = () => {
               paddingTop: topPad,
               paddingHorizontal: H_PAD,
               /*
-                Réserve explicite pour le clavier sur iOS (sur Android c'est
-                `adjustResize` qui rétrécit déjà la fenêtre). Sans cette marge,
+                Réserve explicite pour le clavier, sur iOS comme sur Android :
+                en affichage bord à bord (Android 15+, API 35/36), `adjustResize`
+                ne rétrécit plus la fenêtre et le clavier recouvrait la case
+                Ville. Sans cette marge,
                 `scrollTo` est borné par la hauteur du contenu et ne peut pas
                 remonter les derniers champs au-dessus du clavier.
                 On préfère cette réserve à `automaticallyAdjustKeyboardInsets`,
                 dont l'inset arrive après le `onFocus` — donc trop tard.
               */
-              paddingBottom: 8 + (Platform.OS === 'ios' ? keyboardHeight : 0),
+              paddingBottom: 8 + keyboardHeight,
             },
           ]}
           keyboardShouldPersistTaps="always"
