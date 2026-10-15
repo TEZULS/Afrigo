@@ -5,6 +5,7 @@ import {
   MIN_ADDRESS_QUERY_LENGTH,
   type AddressSuggestion,
 } from '@/services/addressAutocomplete';
+import { getNearbyPosition, type NearbyPosition } from '@/services/nearbyPosition';
 
 /** Délai d'inactivité avant d'interroger la BAN (évite 1 requête par touche). */
 const DEBOUNCE_MS = 320;
@@ -41,6 +42,8 @@ export function useAddressAutocomplete(
 ): UseAddressAutocompleteResult {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
+  /** Position du client : les adresses de proximité passent en tête. */
+  const [near, setNear] = useState<NearbyPosition | null>(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -49,6 +52,14 @@ export function useAddressAutocomplete(
       mounted.current = false;
     };
   }, []);
+
+  /* Localisation demandée dès que le client utilise le champ, pas avant. */
+  useEffect(() => {
+    if (!enabled || near) return;
+    void getNearbyPosition().then((pos) => {
+      if (pos && mounted.current) setNear(pos);
+    });
+  }, [enabled, near]);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -63,8 +74,8 @@ export function useAddressAutocomplete(
     const timer = setTimeout(() => {
       const run =
         kind === 'city'
-          ? searchCities(trimmed, { limit, signal: controller.signal })
-          : searchAddresses(trimmed, { limit, postalCode, signal: controller.signal });
+          ? searchCities(trimmed, { limit, near, signal: controller.signal })
+          : searchAddresses(trimmed, { limit, postalCode, near, signal: controller.signal });
 
       run
         .then((res) => {
@@ -81,7 +92,7 @@ export function useAddressAutocomplete(
       clearTimeout(timer);
       controller.abort();
     };
-  }, [query, enabled, kind, postalCode, limit]);
+  }, [query, enabled, kind, postalCode, limit, near]);
 
   return { suggestions, loading };
 }
