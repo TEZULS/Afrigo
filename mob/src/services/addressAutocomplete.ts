@@ -8,6 +8,8 @@
  * Docs : https://adresse.data.gouv.fr/api-doc/adresse
  */
 
+import type { NearbyPosition } from '@/services/nearbyPosition';
+
 const BAN_ENDPOINT = 'https://api-adresse.data.gouv.fr/search/';
 
 /** La BAN refuse les requêtes de moins de 3 caractères. */
@@ -54,14 +56,32 @@ export interface SearchAddressesOptions {
   limit?: number;
   /** Restreint la recherche à un code postal déjà saisi par l'utilisateur. */
   postalCode?: string;
+  /**
+   * Position approximative du client : la BAN classe alors en tête les
+   * adresses et communes les plus proches (sans exclure les autres).
+   */
+  near?: NearbyPosition | null;
   signal?: AbortSignal;
 }
 
 /** Cache mémoire simple : évite de refrapper l'API sur les retours en arrière. */
 const cache = new Map<string, AddressSuggestion[]>();
 
-function cacheKey(scope: string, query: string, postalCode?: string): string {
-  return `${scope}|${query.trim().toLowerCase()}|${postalCode?.trim() ?? ''}`;
+function cacheKey(
+  scope: string,
+  query: string,
+  postalCode?: string,
+  near?: NearbyPosition | null,
+): string {
+  const where = near ? `${near.lat},${near.lon}` : '';
+  return `${scope}|${query.trim().toLowerCase()}|${postalCode?.trim() ?? ''}|${where}`;
+}
+
+/** Priorité de proximité, comprise par la BAN via `lat` / `lon`. */
+function applyNear(params: URLSearchParams, near?: NearbyPosition | null): void {
+  if (!near) return;
+  params.set('lat', String(near.lat));
+  params.set('lon', String(near.lon));
 }
 
 function rememberInCache(key: string, value: AddressSuggestion[]): void {
@@ -168,8 +188,9 @@ export async function searchAddresses(
   });
   // La BAN n'accepte le filtre `postcode` qu'une fois le code postal complet.
   if (postalCode && /^[0-9]{5}$/.test(postalCode)) params.set('postcode', postalCode);
+  applyNear(params, options.near);
 
-  return queryBan(params, cacheKey('adr', q, postalCode), options.signal);
+  return queryBan(params, cacheKey('adr', q, postalCode, options.near), options.signal);
 }
 
 /**
@@ -191,8 +212,9 @@ export async function searchCities(
     autocomplete: '1',
     type: 'municipality',
   });
+  applyNear(params, options.near);
 
-  return queryBan(params, cacheKey('ville', q), options.signal);
+  return queryBan(params, cacheKey('ville', q, undefined, options.near), options.signal);
 }
 
 /** Vide le cache (tests). */

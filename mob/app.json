@@ -46,6 +46,7 @@
       },
       "permissions": [
         "android.permission.INTERNET",
+        "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.CAMERA",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECORD_AUDIO",
@@ -128,6 +129,12 @@
       ],
       "expo-font",
       "expo-background-fetch",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "AfriGo utilise votre position pour vous proposer en premier les adresses proches de chez vous."
+        }
+      ],
       [
         "expo-speech-recognition",
         {
