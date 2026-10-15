@@ -624,7 +624,7 @@ export const OrdersScreen: React.FC = () => {
 
       <Modal visible={cancelOpen} transparent animationType="fade" onRequestClose={() => setCancelOpen(false)}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior="padding"
           style={styles.modalOverlay}
         >
           <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
@@ -666,7 +666,7 @@ export const OrdersScreen: React.FC = () => {
 
       <Modal visible={refundOpen} transparent animationType="fade" onRequestClose={() => setRefundOpen(false)}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior="padding"
           style={styles.modalOverlay}
         >
           <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
@@ -753,7 +753,7 @@ export const OrdersScreen: React.FC = () => {
 
       <Modal visible={reviewOpen} transparent animationType="fade" onRequestClose={() => setReviewOpen(false)}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior="padding"
           style={styles.modalOverlay}
         >
           <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
