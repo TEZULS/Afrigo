@@ -223,6 +223,10 @@ jest.mock('@/services/devicePushToken', () => ({
 
 // expo-location
 jest.mock('expo-location', () => ({
+  Accuracy: { Lowest: 1, Low: 2, Balanced: 3, High: 4 },
+  // Par défaut, pas de localisation : les suggestions d'adresses restent nationales.
+  getForegroundPermissionsAsync: jest.fn(async () => ({ status: 'denied' })),
+  getLastKnownPositionAsync: jest.fn(async () => null),
   requestForegroundPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
   getCurrentPositionAsync: jest.fn(async () => ({
     coords: { latitude: 0, longitude: 0 },
