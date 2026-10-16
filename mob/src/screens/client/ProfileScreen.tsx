@@ -28,6 +28,7 @@ import { Input } from '@/components/ui/Input';
 import { TierBadge } from '@/components/profile/TierBadge';
 import { ReferralSection } from '@/components/profile/ReferralSection';
 import { useAuth } from '@/lib/AuthContext';
+import { useEnsureCustomerIds } from '@/hooks/useEnsureCustomerIds';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useToast } from '@/hooks/useToast';
 import {
@@ -64,6 +65,8 @@ interface TierBenefitRow {
 
 export const ProfileScreen: React.FC = () => {
   const { user, isAuthenticated, logout, refreshUser } = useAuth();
+  // Identifiant client / code de parrainage attribués ici s'ils manquent (comme le site).
+  useEnsureCustomerIds();
   const { colors } = useTheme();
   const toast = useToast();
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
