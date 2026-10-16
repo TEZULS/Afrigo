@@ -452,9 +452,10 @@ export const ProfileScreen: React.FC = () => {
               </Text>
               <Text
                 style={[styles.statValueId, { color: colors.foreground }]}
-                numberOfLines={2}
+                // Toujours sur une ligne : la taille se réduit plutôt que de renvoyer un chiffre à la ligne.
+                numberOfLines={1}
                 adjustsFontSizeToFit
-                minimumFontScale={0.7}
+                minimumFontScale={0.5}
               >
                 {customerId}
               </Text>
@@ -970,7 +971,7 @@ const styles = StyleSheet.create({
   statRowInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   statLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
   statValue: { fontSize: 20, fontWeight: '800' },
-  statValueId: { fontSize: 18, fontWeight: '800', letterSpacing: 0.5 },
+  statValueId: { fontSize: 18, fontWeight: '800' },
   statHint: { fontSize: 11, marginTop: 2 },
   statIcon: {
     width: 40,
