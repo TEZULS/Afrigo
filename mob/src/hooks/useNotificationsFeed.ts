@@ -1010,6 +1010,7 @@ export const useNotificationsFeed = () => {
     markRead: markNotificationRead,
     markAllRead,
     remove: deleteNotification,
+    removeMany: deleteNotifications,
   };
 };
 
