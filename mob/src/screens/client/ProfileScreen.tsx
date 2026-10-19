@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +14,6 @@ import {
   ArrowRightLeft,
   ArrowLeft,
   LogOut,
-  Trash2,
   Edit2,
   Save,
   Phone,
@@ -36,7 +35,6 @@ import {
   LoyaltySettings,
   TierBenefit,
   WalletTransaction,
-  invokeFunction,
 } from '@/api/entities';
 import { getBase44 } from '@/api/base44Client';
 import type { RootStackParamList } from '@/navigation/types';
@@ -100,7 +98,6 @@ export const ProfileScreen: React.FC = () => {
   const [cityDraft, setCityDraft] = useState(userCity);
   const [saving, setSaving] = useState(false);
   const [converting, setConverting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   const { data: loyaltySettings } = useQuery<LoyaltySettingsData | null>({
     queryKey: ['loyaltySettings'],
@@ -297,35 +294,6 @@ export const ProfileScreen: React.FC = () => {
       setConverting(false);
     }
   }, [userEmail, totalPoints, conversionRate, userObj, refreshUser, queryClient, toast]);
-
-  const handleDeleteAccount = useCallback(() => {
-    Alert.alert(
-      'Supprimer mon compte',
-      'Cette action est irréversible. Toutes vos données seront supprimées.',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            setDeleting(true);
-            try {
-              await invokeFunction('handleCustomAuth', { action: 'delete_account' });
-              await logout();
-              nav.navigate('ClientTabs', { screen: 'HomeTab' });
-            } catch (e) {
-              toast.error(
-                'Suppression impossible',
-                userErrorMessage(e, 'Votre compte n’a pas pu être supprimé. Contactez le service client.'),
-              );
-            } finally {
-              setDeleting(false);
-            }
-          },
-        },
-      ],
-    );
-  }, [logout, nav, toast]);
 
   if (!isAuthenticated) {
     const fg = colors.foreground;
@@ -889,15 +857,6 @@ export const ProfileScreen: React.FC = () => {
           textStyle={{ color: palette.rose[600] }}
           onPress={logout}
           style={{ borderColor: '#FECDD3' }}
-        />
-        <Button
-          title={deleting ? 'Suppression…' : 'Supprimer mon compte'}
-          variant="ghost"
-          fullWidth
-          loading={deleting}
-          leftIcon={<Trash2 size={16} color={colors.mutedForeground} />}
-          textStyle={{ color: colors.mutedForeground }}
-          onPress={handleDeleteAccount}
         />
       </View>
     </Screen>
