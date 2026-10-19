@@ -68,9 +68,9 @@ describe('ContactScreen', () => {
     expect(screen.getByText('Échangez directement avec notre équipe')).toBeTruthy();
   });
 
-  it('guide les testeurs bêta vers les canaux de feedback', async () => {
+  it('n’affiche plus l’encart « Testeurs bêta » (l’app n’est plus en bêta)', async () => {
     renderWithProviders(wrap(<ContactScreen />));
-    await waitFor(() => expect(screen.getByText('Testeurs bêta')).toBeTruthy());
-    expect(screen.getByText(/avis privé dans le Play Store/i)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Appuyez pour appeler directement')).toBeTruthy());
+    expect(screen.queryByText('Testeurs bêta')).toBeNull();
   });
 });
