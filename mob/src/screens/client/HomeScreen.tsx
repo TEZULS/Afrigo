@@ -26,6 +26,7 @@ import { useMenuDrawer } from '@/stores/menuDrawer';
 import { useHomeSearch } from '@/stores/homeSearch';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useAuth } from '@/lib/AuthContext';
+import { useEnsureCustomerIds } from '@/hooks/useEnsureCustomerIds';
 import { Product } from '@/api/entities';
 import { passesShopMode } from '@/utils/productShopMode';
 import { isCosmetiqueCategory } from '@/utils/categories';
@@ -57,6 +58,8 @@ function chunkProductPairs(rows: ProductDTO[]): ProductDTO[][] {
 export const HomeScreen: React.FC = () => {
   const { colors } = useTheme();
   const { user, isAuthenticated } = useAuth();
+  // Identifiant client / code de parrainage attribués dès l'accueil s'ils manquent (comme le site).
+  useEnsureCustomerIds();
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const listRef = useRef<SectionList<unknown>>(null);
 

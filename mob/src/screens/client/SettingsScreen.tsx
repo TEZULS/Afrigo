@@ -3,12 +3,14 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Pressable } from '@/components/ui/Pressable';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { CreditCard, RotateCcw, Banknote, ScrollText } from 'lucide-react-native';
+import { CreditCard, RotateCcw, Banknote, ScrollText, Trash2 } from 'lucide-react-native';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/ui/Card';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useAuth } from '@/lib/AuthContext';
+import { useDeleteAccount } from '@/hooks/useDeleteAccount';
+import { Button } from '@/components/ui/Button';
 import { palette } from '@/theme/tokens';
 import {
   PersistentBottomNav,
@@ -61,6 +63,7 @@ export const SettingsScreen: React.FC = () => {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
   const { isAuthenticated } = useAuth();
+  const { deleteAccount, deleting } = useDeleteAccount();
 
   /* Ces trois écrans exigent un compte : on renvoie vers la connexion sinon. */
   const open = (route: SettingsEntry['route'], publicAccess = false) => {
@@ -106,6 +109,20 @@ export const SettingsScreen: React.FC = () => {
           );
         })}
       </View>
+      {/* Obligatoire pour l'App Store (règle 5.1.1(v)) ; retiré du profil le 2026-10-01. */}
+      {isAuthenticated ? (
+        <Button
+          title={deleting ? 'Suppression…' : 'Supprimer mon compte'}
+          variant="ghost"
+          fullWidth
+          loading={deleting}
+          leftIcon={<Trash2 size={16} color={colors.mutedForeground} />}
+          textStyle={{ color: colors.mutedForeground }}
+          onPress={deleteAccount}
+          style={{ marginTop: 24 }}
+          testID="settings-delete-account"
+        />
+      ) : null}
     </Screen>
   );
 };

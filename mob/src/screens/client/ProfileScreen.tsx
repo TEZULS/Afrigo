@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +14,6 @@ import {
   ArrowRightLeft,
   ArrowLeft,
   LogOut,
-  Trash2,
   Edit2,
   Save,
   Phone,
@@ -28,6 +27,7 @@ import { Input } from '@/components/ui/Input';
 import { TierBadge } from '@/components/profile/TierBadge';
 import { ReferralSection } from '@/components/profile/ReferralSection';
 import { useAuth } from '@/lib/AuthContext';
+import { useEnsureCustomerIds } from '@/hooks/useEnsureCustomerIds';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useToast } from '@/hooks/useToast';
 import {
@@ -35,7 +35,6 @@ import {
   LoyaltySettings,
   TierBenefit,
   WalletTransaction,
-  invokeFunction,
 } from '@/api/entities';
 import { getBase44 } from '@/api/base44Client';
 import type { RootStackParamList } from '@/navigation/types';
@@ -64,6 +63,8 @@ interface TierBenefitRow {
 
 export const ProfileScreen: React.FC = () => {
   const { user, isAuthenticated, logout, refreshUser } = useAuth();
+  // Identifiant client / code de parrainage attribués ici s'ils manquent (comme le site).
+  useEnsureCustomerIds();
   const { colors } = useTheme();
   const toast = useToast();
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -97,7 +98,6 @@ export const ProfileScreen: React.FC = () => {
   const [cityDraft, setCityDraft] = useState(userCity);
   const [saving, setSaving] = useState(false);
   const [converting, setConverting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   const { data: loyaltySettings } = useQuery<LoyaltySettingsData | null>({
     queryKey: ['loyaltySettings'],
@@ -295,35 +295,6 @@ export const ProfileScreen: React.FC = () => {
     }
   }, [userEmail, totalPoints, conversionRate, userObj, refreshUser, queryClient, toast]);
 
-  const handleDeleteAccount = useCallback(() => {
-    Alert.alert(
-      'Supprimer mon compte',
-      'Cette action est irréversible. Toutes vos données seront supprimées.',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            setDeleting(true);
-            try {
-              await invokeFunction('handleCustomAuth', { action: 'delete_account' });
-              await logout();
-              nav.navigate('ClientTabs', { screen: 'HomeTab' });
-            } catch (e) {
-              toast.error(
-                'Suppression impossible',
-                userErrorMessage(e, 'Votre compte n’a pas pu être supprimé. Contactez le service client.'),
-              );
-            } finally {
-              setDeleting(false);
-            }
-          },
-        },
-      ],
-    );
-  }, [logout, nav, toast]);
-
   if (!isAuthenticated) {
     const fg = colors.foreground;
     const muted = colors.mutedForeground;
@@ -449,9 +420,10 @@ export const ProfileScreen: React.FC = () => {
               </Text>
               <Text
                 style={[styles.statValueId, { color: colors.foreground }]}
-                numberOfLines={2}
+                // Toujours sur une ligne : la taille se réduit plutôt que de renvoyer un chiffre à la ligne.
+                numberOfLines={1}
                 adjustsFontSizeToFit
-                minimumFontScale={0.7}
+                minimumFontScale={0.5}
               >
                 {customerId}
               </Text>
@@ -886,15 +858,6 @@ export const ProfileScreen: React.FC = () => {
           onPress={logout}
           style={{ borderColor: '#FECDD3' }}
         />
-        <Button
-          title={deleting ? 'Suppression…' : 'Supprimer mon compte'}
-          variant="ghost"
-          fullWidth
-          loading={deleting}
-          leftIcon={<Trash2 size={16} color={colors.mutedForeground} />}
-          textStyle={{ color: colors.mutedForeground }}
-          onPress={handleDeleteAccount}
-        />
       </View>
     </Screen>
   );
@@ -967,7 +930,7 @@ const styles = StyleSheet.create({
   statRowInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   statLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
   statValue: { fontSize: 20, fontWeight: '800' },
-  statValueId: { fontSize: 18, fontWeight: '800', letterSpacing: 0.5 },
+  statValueId: { fontSize: 18, fontWeight: '800' },
   statHint: { fontSize: 11, marginTop: 2 },
   statIcon: {
     width: 40,
