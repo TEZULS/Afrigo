@@ -12,20 +12,49 @@ import {
   Truck,
 } from 'lucide-react-native';
 import { palette } from '@/theme/tokens';
-import { formatDateTime, formatRelative } from '@/utils/format';
 import { parseServerDate } from '@/utils/serverDate';
 import type { NotificationItem } from '@/hooks/useNotificationsFeed';
 import type { IconComponent } from '@/types/icon';
 
-const SEVEN_DAYS_MS = 7 * 24 * 36e5;
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 36e5;
+const WEEKDAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 
-/** « il y a 2 heures » pour la semaine écoulée, sinon la date complète. */
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+/** « 17h05 » (heure du téléphone). */
+const clock = (d: Date) => `${d.getHours()}h${String(d.getMinutes()).padStart(2, '0')}`;
+
+/**
+ * Date d'une notification, à la manière d'une messagerie (demande du
+ * 2026-10-20) : « À l'instant », « Il y a 12 min », « Aujourd'hui à 17h05 »,
+ * « Hier à 17h05 », « Lundi à 17h05 » sur la semaine, puis « 12 oct. à 17h05 »
+ * (avec l'année si ce n'est pas l'année en cours).
+ */
 export const notificationDateLabel = (iso?: string | null, now = Date.now()): string => {
   if (!iso) return '';
-  const ms = parseServerDate(iso).getTime();
+  const d = parseServerDate(iso);
+  const ms = d.getTime();
   if (!Number.isFinite(ms)) return '';
-  if (now - ms < SEVEN_DAYS_MS && ms <= now) return formatRelative(iso);
-  return formatDateTime(iso);
+  const elapsed = now - ms;
+  if (elapsed >= 0 && elapsed < MINUTE_MS) return "À l'instant";
+  if (elapsed >= 0 && elapsed < 60 * MINUTE_MS) return `Il y a ${Math.floor(elapsed / MINUTE_MS)} min`;
+  const today = new Date(now);
+  // Arrondi : un jour de changement d'heure dure 23 ou 25 h.
+  const days = Math.round((startOfDay(today) - startOfDay(d)) / DAY_MS);
+  if (days <= 0) return `Aujourd'hui à ${clock(d)}`;
+  if (days === 1) return `Hier à ${clock(d)}`;
+  if (days < 7) return `${WEEKDAYS[d.getDay()]} à ${clock(d)}`;
+  const year = d.getFullYear() === today.getFullYear() ? '' : ` ${d.getFullYear()}`;
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}${year} à ${clock(d)}`;
+};
+
+/** Pour la fiche de détail : « Reçue hier à 17h05 », « Reçue le 12 oct. à 17h05 ». */
+export const notificationReceivedLabel = (iso?: string | null, now = Date.now()): string => {
+  const label = notificationDateLabel(iso, now);
+  if (!label) return '';
+  if (/^\d/.test(label)) return `Reçue le ${label}`;
+  return `Reçue ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
 };
 
 export interface NotificationVisual {
