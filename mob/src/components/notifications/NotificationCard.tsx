@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Pressable } from '@/components/ui/Pressable';
-import { ChevronRight, Trash2 } from 'lucide-react-native';
+import { Check, ChevronRight, Trash2 } from 'lucide-react-native';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette } from '@/theme/tokens';
 import type { NotificationItem } from '@/hooks/useNotificationsFeed';
@@ -12,6 +12,11 @@ interface Props {
   item: NotificationItem;
   onPress: () => void;
   onDelete: () => void;
+  /** Appui long : passe en sélection multiple avec cette notification. */
+  onLongPress?: () => void;
+  /** Sélection multiple en cours : la carte se coche au lieu de s'ouvrir. */
+  selectionMode?: boolean;
+  selected?: boolean;
 }
 
 const ctaLabel = (item: NotificationItem): string => {
@@ -45,33 +50,56 @@ const ctaLabel = (item: NotificationItem): string => {
  * que confiées à `gap`, pour un rendu identique sur toutes les versions
  * d'Android / iOS.
  */
-export const NotificationCard: React.FC<Props> = ({ item, onPress, onDelete }) => {
+export const NotificationCard: React.FC<Props> = ({
+  item,
+  onPress,
+  onDelete,
+  onLongPress,
+  selectionMode = false,
+  selected = false,
+}) => {
   const { colors } = useTheme();
   const visual = notificationVisual(item);
   const unread = item.unread;
+  const borderColor = selectionMode && selected ? palette.brand.orange : unread ? palette.orange[300] : colors.border;
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${unread ? 'Non lue. ' : 'Lue. '}${visual.label}. ${item.title} — ${item.body}`}
-      accessibilityHint="Ouvre le détail de la notification"
+      accessibilityLabel={`${selectionMode ? (selected ? 'Sélectionnée. ' : 'Non sélectionnée. ') : ''}${unread ? 'Non lue. ' : 'Lue. '}${visual.label}. ${item.title} — ${item.body}`}
+      accessibilityHint={selectionMode ? 'Coche ou décoche la notification' : 'Ouvre le détail de la notification'}
+      accessibilityState={selectionMode ? { selected } : undefined}
       testID={`notification-row-${item.id}`}
       onPress={onPress}
-      onLongPress={onDelete}
+      onLongPress={onLongPress ?? onDelete}
       android_ripple={{ color: 'rgba(0,0,0,0.05)' }}
       style={({ pressed }) => [
         styles.card,
         {
-          backgroundColor: pressed ? colors.surfaceMuted : colors.card,
-          borderColor: unread ? palette.orange[300] : colors.border,
+          backgroundColor: selectionMode && selected ? palette.orange[50] : pressed ? colors.surfaceMuted : colors.card,
+          borderColor,
           transform: [{ scale: pressed ? 0.985 : 1 }],
         },
       ]}
     >
       <View style={styles.top}>
-        <View style={[styles.iconWrap, { backgroundColor: unread ? visual.bg : colors.muted }]}>
-          <visual.Icon size={20} color={unread ? visual.color : colors.mutedForeground} />
-        </View>
+        {selectionMode ? (
+          <View
+            style={[
+              styles.checkbox,
+              selected
+                ? { backgroundColor: palette.brand.orange, borderColor: palette.brand.orange }
+                : { borderColor: colors.border, backgroundColor: colors.card },
+            ]}
+            testID={`notification-check-${item.id}`}
+          >
+            {selected ? <Check size={18} color="#FFFFFF" /> : null}
+          </View>
+        ) : (
+          <View style={[styles.iconWrap, { backgroundColor: unread ? visual.bg : colors.muted }]}>
+            <visual.Icon size={20} color={unread ? visual.color : colors.mutedForeground} />
+          </View>
+        )}
 
         <View style={styles.textCol}>
           <View style={styles.headRow}>
@@ -114,6 +142,7 @@ export const NotificationCard: React.FC<Props> = ({ item, onPress, onDelete }) =
         </View>
       </View>
 
+      {selectionMode ? null : (
       <View style={[styles.footer, { borderTopColor: colors.border }]}>
         <View style={[styles.cta, { backgroundColor: unread ? palette.brand.orange : palette.orange[50] }]}>
           <Text style={[styles.ctaText, { color: unread ? '#FFFFFF' : palette.orange[700] }]}>
@@ -138,6 +167,7 @@ export const NotificationCard: React.FC<Props> = ({ item, onPress, onDelete }) =
           <Trash2 size={16} color={colors.mutedForeground} />
         </Pressable>
       </View>
+      )}
     </Pressable>
   );
 };
@@ -168,6 +198,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+  },
+  checkbox: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    marginTop: 6,
   },
   textCol: { flex: 1, minWidth: 0 },
   headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
