@@ -294,9 +294,29 @@ existent déjà** :
 
 L'état « lu » est écrit dans `NotificationRead`, donc il suit le compte d'un
 appareil à l'autre ; un cache local (`kv`) le double pour un affichage instantané
-et hors ligne. Quitter l'onglet 🔔 marque tout comme lu (badge à zéro). La
-suppression par le client écrit `NotificationRead.deleted = true` (comme le
-web) : la ligne `AppNotification`, partagée, n'est jamais effacée.
+et hors ligne. Ouvrir l'onglet 🔔 remet la bulle à zéro sans tout marquer comme
+lu. La suppression par le client écrit `NotificationRead.deleted = true` (comme
+le web) : la ligne `AppNotification`, partagée, n'est jamais effacée.
+
+Écran Notifications (2026-10-20) :
+
+- **suppression multiple** : icône « cocher » en haut (ou appui long sur une
+  notification) → cases à cocher, « Tout sélectionner », « Supprimer (n) » ;
+  les notifications supprimées disparaissent aussi du centre de notifications
+  du téléphone ;
+- **dates** : « À l'instant », « Il y a 5 min », « Aujourd'hui à 17h05 »,
+  « Hier à 17h05 », « Lundi à 9h30 », « 12 oct. à 9h30 »
+  (`notificationDateLabel` dans `notificationPresentation.ts`) ;
+- les suppressions sont relues à part (`deleted: true`, 1 000 dernières) : une
+  notification supprimée ne revient jamais, même au-delà des 500 lignes
+  récentes ;
+- **rappels de panier** : un seul affiché par sorte (« panier oublié »,
+  « bientôt en rupture »), le plus récent. Côté serveur,
+  `sendCartReminderNotifications` n'en crée plus qu'un par panier abandonné
+  (avant : un toutes les 4 h tant que le panier restait plein, ce qui faisait
+  « revenir » les notifications supprimées). Déploiement :
+  `node deploy-push-base44/fix-reminders.cjs`.
+
 **Mode par défaut : aucune action sur base44 (2026-10-10).** L'app affiche
 elle-même une vraie notification système pour chaque nouveauté du fil
 (`AppNotification` créée par l'admin ou automatiquement, nouveau statut de
