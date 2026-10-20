@@ -189,3 +189,64 @@ describe('NotificationsScreen — présentation', () => {
     expect(screen.getByText('AFRIGO')).toBeTruthy();
   });
 });
+
+describe('NotificationsScreen — sélection multiple', () => {
+  const confirmAlerts = () =>
+    jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => {
+      buttons?.find((b) => b.style === 'destructive')?.onPress?.();
+    });
+
+  it('coche plusieurs notifications et les supprime en une fois', async () => {
+    const alertSpy = confirmAlerts();
+    renderWithProviders(wrap(<NotificationsScreen />));
+    await waitFor(() => expect(screen.getByTestId('notifications-select')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('notifications-select'));
+    expect(screen.getByTestId('notifications-selection-bar')).toBeTruthy();
+    // En sélection, un appui coche (pas d'ouverture du détail).
+    fireEvent.press(screen.getByTestId('notification-row-n_long'));
+    fireEvent.press(screen.getByTestId('notification-row-n_order'));
+    expect(screen.queryByTestId('notification-detail-sheet')).toBeNull();
+    expect(screen.getByTestId('notifications-delete-selected')).toHaveTextContent('Supprimer (2)');
+
+    fireEvent.press(screen.getByTestId('notifications-delete-selected'));
+    expect(alertSpy).toHaveBeenCalledWith('Supprimer ces 2 notifications ?', undefined, expect.any(Array));
+    await waitFor(() => expect(screen.queryByTestId('notification-row-n_long')).toBeNull());
+    expect(screen.queryByTestId('notification-row-n_order')).toBeNull();
+    expect(screen.queryByTestId('notifications-selection-bar')).toBeNull();
+    await waitFor(() =>
+      expect(mockReadCreate).toHaveBeenCalledWith(expect.objectContaining({ notification_id: 'n_order', deleted: true })),
+    );
+    expect(mockReadCreate).toHaveBeenCalledWith(expect.objectContaining({ notification_id: 'n_long', deleted: true }));
+    alertSpy.mockRestore();
+  });
+
+  it('appui long : passe en sélection avec la notification cochée', async () => {
+    renderWithProviders(wrap(<NotificationsScreen />));
+    await waitFor(() => expect(screen.getByTestId('notification-row-n_long')).toBeTruthy());
+    fireEvent(screen.getByTestId('notification-row-n_long'), 'longPress');
+    expect(screen.getByTestId('notification-check-n_long')).toBeTruthy();
+    expect(screen.getByTestId('notifications-delete-selected')).toHaveTextContent('Supprimer (1)');
+  });
+
+  it('« Tout sélectionner », puis « Annuler » sans rien supprimer', async () => {
+    renderWithProviders(wrap(<NotificationsScreen />));
+    await waitFor(() => expect(screen.getByTestId('notifications-select')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('notifications-select'));
+    fireEvent.press(screen.getByTestId('notifications-select-all'));
+    expect(screen.getByTestId('notifications-delete-selected')).toHaveTextContent('Supprimer (2)');
+    expect(screen.getByTestId('notifications-select-all')).toHaveTextContent('Tout désélectionner');
+
+    fireEvent.press(screen.getByTestId('notifications-selection-cancel'));
+    expect(screen.queryByTestId('notifications-selection-bar')).toBeNull();
+    expect(screen.getByTestId('notification-row-n_long')).toBeTruthy();
+    expect(mockReadCreate).not.toHaveBeenCalledWith(expect.objectContaining({ deleted: true }));
+  });
+
+  it('rien de coché : le bouton Supprimer est inactif', async () => {
+    renderWithProviders(wrap(<NotificationsScreen />));
+    await waitFor(() => expect(screen.getByTestId('notifications-select')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('notifications-select'));
+    expect(screen.getByTestId('notifications-delete-selected').props.accessibilityState?.disabled).toBe(true);
+  });
+});

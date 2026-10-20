@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/Card';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useAuth } from '@/lib/AuthContext';
 import { useDeleteAccount } from '@/hooks/useDeleteAccount';
+import { NotificationsSettingsCard } from '@/components/settings/NotificationsSettingsCard';
 import { Button } from '@/components/ui/Button';
 import { palette } from '@/theme/tokens';
 import {
@@ -109,6 +110,7 @@ export const SettingsScreen: React.FC = () => {
           );
         })}
       </View>
+      <NotificationsSettingsCard />
       {/* Obligatoire pour l'App Store (règle 5.1.1(v)) ; retiré du profil le 2026-10-01. */}
       {isAuthenticated ? (
         <Button

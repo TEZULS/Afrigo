@@ -294,9 +294,29 @@ existent déjà** :
 
 L'état « lu » est écrit dans `NotificationRead`, donc il suit le compte d'un
 appareil à l'autre ; un cache local (`kv`) le double pour un affichage instantané
-et hors ligne. Quitter l'onglet 🔔 marque tout comme lu (badge à zéro). La
-suppression par le client écrit `NotificationRead.deleted = true` (comme le
-web) : la ligne `AppNotification`, partagée, n'est jamais effacée.
+et hors ligne. Ouvrir l'onglet 🔔 remet la bulle à zéro sans tout marquer comme
+lu. La suppression par le client écrit `NotificationRead.deleted = true` (comme
+le web) : la ligne `AppNotification`, partagée, n'est jamais effacée.
+
+Écran Notifications (2026-10-20) :
+
+- **suppression multiple** : icône « cocher » en haut (ou appui long sur une
+  notification) → cases à cocher, « Tout sélectionner », « Supprimer (n) » ;
+  les notifications supprimées disparaissent aussi du centre de notifications
+  du téléphone ;
+- **dates** : « À l'instant », « Il y a 5 min », « Aujourd'hui à 17h05 »,
+  « Hier à 17h05 », « Lundi à 9h30 », « 12 oct. à 9h30 »
+  (`notificationDateLabel` dans `notificationPresentation.ts`) ;
+- les suppressions sont relues à part (`deleted: true`, 1 000 dernières) : une
+  notification supprimée ne revient jamais, même au-delà des 500 lignes
+  récentes ;
+- **rappels de panier** : un seul affiché par sorte (« panier oublié »,
+  « bientôt en rupture »), le plus récent. Côté serveur,
+  `sendCartReminderNotifications` n'en crée plus qu'un par panier abandonné
+  (avant : un toutes les 4 h tant que le panier restait plein, ce qui faisait
+  « revenir » les notifications supprimées). Déploiement :
+  `node deploy-push-base44/fix-reminders.cjs`.
+
 **Mode par défaut : aucune action sur base44 (2026-10-10).** L'app affiche
 elle-même une vraie notification système pour chaque nouveauté du fil
 (`AppNotification` créée par l'admin ou automatiquement, nouveau statut de
@@ -539,6 +559,7 @@ npm run prebuild
 - **Icônes de catégories** : `CATEGORY_IMAGES` dans `mob/src/utils/categories.ts` — déposer les visuels dans `mob/assets/categories/<id>.png` et les référencer ; sans entrée, la pastille garde l'emoji.
 - **Clavier sur Android (bord à bord, API 35/36)** : `adjustResize` ne rétrécit plus la fenêtre, le clavier recouvrait les derniers champs (Ville à l'inscription). `Screen` applique donc un `KeyboardAvoidingView` en `padding` sur **les deux** plateformes ; un écran qui gère lui-même le clavier passe `keyboardBehavior="none"` et réserve `keyboardHeight` en bas de son ScrollView (inscription : `useKeyboardAwareFields`).
 - **Micro Android** : `android.permission.RECORD_AUDIO` doit rester dans `android.permissions` de `app.json` et **jamais** dans `blockedPermissions` (où il était jusqu'à la 1.0.27). Moteur de reconnaissance (`pickAndroidRecognizer` dans `useVoiceProductSearch.ts`) : celui du téléphone s'il s'agit déjà d'un moteur Google en ligne, sinon « Services vocaux de Google » (`com.google.android.tts`) ou l'app Google ; jamais `com.google.android.as` (reconnaissance hors ligne, qui s'arrête sans rien entendre si le pack français n'est pas téléchargé). Le dossier local `mob/android/` (non versionné, ancien) n'est pas utilisé par EAS : `npx expo prebuild --clean -p android` avant tout build Android local. Contrôle sans build : `npx expo config --type introspect`, dossier `android/` mis de côté.
+- **Icône de notification Android** : `mob/assets/images/notification-icon.png`, blanc sur transparent (Android ne garde que la silhouette, teintée `#F97316`), 384 px, traits épais lisibles à 24 dp, sans les traits de vitesse du logo. Avant le 2026-10-10 : image vide de 70 octets (icône blanche ou grise) ; jusqu'au 2026-10-20 : traits fins, à peine visibles dans la barre d'état.
 - **Modifs en cours non commitées** (au moment de la remise) :
   - `base44/functions/addLoyaltyPointsOnDelivery/entry.ts`
   - `base44/functions/removeLoyaltyPointsOnReturn/entry.ts`

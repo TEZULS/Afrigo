@@ -11,7 +11,7 @@ import { Order } from '@/api/entities';
 import { useTheme } from '@/theme/ThemeProvider';
 import { formatDateTime, formatPrice } from '@/utils/format';
 import type { NotificationItem } from '@/hooks/useNotificationsFeed';
-import { notificationVisual } from './notificationPresentation';
+import { notificationReceivedLabel, notificationVisual } from './notificationPresentation';
 import { NotificationImage } from './NotificationImage';
 
 interface Props {
@@ -152,7 +152,7 @@ export const NotificationDetailSheet: React.FC<Props> = ({
             </Text>
             {item?.date ? (
               <Text style={[styles.date, { color: colors.mutedForeground }]}>
-                Reçue le {formatDateTime(item.date)}
+                {notificationReceivedLabel(item.date)}
               </Text>
             ) : null}
 
