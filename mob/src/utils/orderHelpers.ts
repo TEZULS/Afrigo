@@ -12,6 +12,11 @@ export interface RefundableOrder {
   amount_to_pay?: number;
   delivered_date?: string;
   updated_date?: string;
+  /**
+   * Réclamation réactivée par l'admin (bouton « Réactiver » de base44) : le
+   * client peut en déposer une nouvelle, même après le délai d'une heure.
+   */
+  return_request_reopened?: boolean;
 }
 
 /** Fenêtre pendant laquelle un client peut demander un remboursement après annulation. */
@@ -38,14 +43,20 @@ export interface ReturnRequestRow {
  */
 export const RETURN_LOCKING_STATUSES: readonly string[] = ['approved', 'completed'];
 
-/** Une demande approuvée ou terminée existe-t-elle déjà pour cette commande ? */
+/**
+ * Une demande bloque-t-elle une nouvelle réclamation sur cette commande ?
+ * Approuvée ou terminée d'ordinaire ; si l'admin a réactivé la réclamation
+ * (`reopened`), seule une demande approuvée — donc en cours — bloque, comme
+ * sur le site.
+ */
 export const hasLockingReturn = (
   returns: ReturnRequestRow[] | undefined,
   orderId: string,
-): boolean =>
-  (returns ?? []).some(
-    (r) => r.order_id === orderId && RETURN_LOCKING_STATUSES.includes(r.status ?? ''),
-  );
+  { reopened = false }: { reopened?: boolean } = {},
+): boolean => {
+  const locking = reopened ? ['approved'] : RETURN_LOCKING_STATUSES;
+  return (returns ?? []).some((r) => r.order_id === orderId && locking.includes(r.status ?? ''));
+};
 
 /**
  * Bouton « Demander un retour » : commande livrée, moins de `windowHours`
@@ -59,6 +70,8 @@ export const canRequestReturn = (
   opts: { locked?: boolean; windowHours?: number } = {},
 ): boolean => {
   if (o.status !== 'delivered' || opts.locked) return false;
+  // Réactivée par l'admin : plus de délai (même règle que le site).
+  if (o.return_request_reopened === true) return true;
   const ref = o.delivered_date ?? o.updated_date;
   if (!ref) return false;
   const window = opts.windowHours ?? RETURN_WINDOW_HOURS;
