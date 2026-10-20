@@ -106,8 +106,15 @@ export const ReturnsScreen: React.FC = () => {
   const toast = useToast();
   const qc = useQueryClient();
 
+  /**
+   * Toujours relue à l'ouverture : la version en cache peut dater d'avant la
+   * livraison (écran de la commande ouvert juste après l'achat) et faisait
+   * afficher « Délai dépassé » sur une commande tout juste livrée.
+   */
   const orderQuery = useQuery<OrderRow | null>({
     queryKey: ['order', route.params.orderId],
+    staleTime: 0,
+    refetchOnMount: 'always',
     queryFn: async () => ((await Order().get?.(route.params.orderId)) ?? null) as OrderRow | null,
   });
   const items = useMemo(() => orderQuery.data?.items ?? [], [orderQuery.data]);
@@ -120,6 +127,8 @@ export const ReturnsScreen: React.FC = () => {
   const returnsQuery = useQuery<ReturnRequestRow[]>({
     queryKey: ['returns-mine', user?.email],
     enabled: Boolean(user?.email),
+    staleTime: 0,
+    refetchOnMount: 'always',
     queryFn: async () =>
       ((await Return().filter?.({ customer_email: user!.email })) ?? []) as ReturnRequestRow[],
   });
@@ -282,9 +291,11 @@ export const ReturnsScreen: React.FC = () => {
     );
   };
 
-  if (orderQuery.isLoading || !orderQuery.data) {
+  // On ne tranche qu'avec la commande (et les demandes) relues à l'instant.
+  const returnsReady = !user?.email || returnsQuery.isFetchedAfterMount;
+  if (!orderQuery.data || !orderQuery.isFetchedAfterMount || !returnsReady) {
     return (
-      <Screen header={<Header onBack={nav.goBack} title="Demande de retour" />}>
+      <Screen header={<Header onBack={nav.goBack} title="Réclamation" />}>
         <Loader />
       </Screen>
     );
