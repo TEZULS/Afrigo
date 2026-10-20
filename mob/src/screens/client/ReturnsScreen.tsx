@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, Linking } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert, Linking, Platform } from 'react-native';
 import { Pressable } from '@/components/ui/Pressable';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -12,8 +12,6 @@ import {
   Plus,
   Package,
   Clock,
-  Repeat,
-  Wallet,
 } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -37,15 +35,11 @@ import {
   RETURN_WINDOW_HOURS,
   type ReturnRequestRow,
 } from '@/utils/orderHelpers';
-import {
-  MIN_RETURN_PHOTOS,
-  RETURN_REASONS,
-  RETURN_RESOLUTIONS,
-  type ReturnReason,
-  type ReturnResolution,
-} from '@/utils/returnStatus';
+import { MIN_RETURN_PHOTOS, RETURN_REASONS, type ReturnReason } from '@/utils/returnStatus';
 import type { RootStackParamList } from '@/navigation/types';
 import { userErrorMessage } from '@/lib/userErrors';
+import { kv } from '@/services/storage';
+import { clearReturnDraft, readReturnDraft, saveReturnDraft } from '@/utils/returnDraft';
 
 /** Ligne de `Order.items` telle que créée par le checkout (mobile et web). */
 interface OrderItem {
@@ -98,6 +92,20 @@ const unitPriceOf = (it: OrderItem): number => {
 
 const openAppSettings = () => {
   void Linking.openSettings();
+};
+
+/**
+ * Crée la réclamation sans choix de résolution (l'admin tranche). Tant que
+ * `resolution_type` reste obligatoire dans base44, la création est refusée :
+ * on renvoie alors une valeur d'attente (`exchange`), jamais affichée au client
+ * tant que la demande n'a pas été traitée.
+ */
+const createReturn = async (payload: Record<string, unknown>): Promise<{ id: string }> => {
+  try {
+    return (await Return().create?.(payload)) as { id: string };
+  } catch {
+    return (await Return().create?.({ ...payload, resolution_type: 'exchange' })) as { id: string };
+  }
 };
 
 export const ReturnsScreen: React.FC = () => {
@@ -158,13 +166,64 @@ export const ReturnsScreen: React.FC = () => {
     },
   });
 
-  const [selected, setSelected] = useState<Selection>({});
+  /**
+   * Réclamation en cours reprise telle quelle : Android peut fermer l'app
+   * pendant la prise de vue (voir `utils/returnDraft.ts`).
+   */
+  const [restored] = useState(() => readReturnDraft(route.params.orderId, user?.email));
+  const [selected, setSelected] = useState<Selection>(() => (restored?.selected ?? {}) as Selection);
   /** Motif imposé : « mauvais produit » ou « date expirée ». */
-  const [reasonCode, setReasonCode] = useState<'' | ReturnReason>('');
-  /** Échange du produit ou remboursement (crédité sur le portefeuille). */
-  const [resolution, setResolution] = useState<'' | ReturnResolution>('');
-  const [description, setDescription] = useState('');
-  const [photos, setPhotos] = useState<PendingPhoto[]>([]);
+  const [reasonCode, setReasonCode] = useState<'' | ReturnReason>(
+    () => RETURN_REASONS.find((r) => r.value === restored?.reasonCode)?.value ?? '',
+  );
+  const [description, setDescription] = useState(() => restored?.description ?? '');
+  const [photos, setPhotos] = useState<PendingPhoto[]>(() => restored?.photos ?? []);
+
+  /** Appareil photo ouvert depuis ce formulaire (noté dans le brouillon). */
+  const cameraOpenedAt = useRef<number | undefined>(undefined);
+  const form = useRef({ selected, reasonCode, description, photos });
+  const persistDraft = useCallback(() => {
+    const email = user?.email;
+    if (!email) return;
+    const f = form.current;
+    const empty =
+      Object.keys(f.selected).length === 0 && !f.reasonCode && !f.description.trim() && f.photos.length === 0;
+    if (empty && !cameraOpenedAt.current) {
+      clearReturnDraft(route.params.orderId);
+      return;
+    }
+    saveReturnDraft({
+      orderId: route.params.orderId,
+      email,
+      selected: f.selected,
+      reasonCode: f.reasonCode,
+      description: f.description,
+      photos: f.photos,
+      cameraOpenedAt: cameraOpenedAt.current,
+    });
+  }, [route.params.orderId, user?.email]);
+
+  useEffect(() => {
+    form.current = { selected, reasonCode, description, photos };
+    persistDraft();
+  }, [selected, reasonCode, description, photos, persistDraft]);
+
+  // Retour après une fermeture par Android pendant la prise de vue : le client
+  // est prévenu, et la photo prise à ce moment-là est récupérée.
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current || !restored?.cameraOpenedAt) return;
+    resumed.current = true;
+    toast.info('Réclamation reprise', 'Vous pouvez continuer là où vous en étiez.');
+    if (Platform.OS !== 'android') return;
+    void ImagePicker.getPendingResultAsync()
+      .then((r) => {
+        if (!r || 'code' in r || r.canceled || !r.assets?.length) return;
+        const taken = r.assets.map((a) => ({ uri: a.uri, fileName: a.fileName, mimeType: a.mimeType }));
+        setPhotos((p) => [...p, ...taken.filter((t) => !p.some((x) => x.uri === t.uri))]);
+      })
+      .catch(() => undefined);
+  }, [restored, toast]);
 
   const selectedEntries = useMemo(
     () =>
@@ -204,18 +263,17 @@ export const ReturnsScreen: React.FC = () => {
     const left = MIN_RETURN_PHOTOS - photos.length;
     missing.push(`prenez encore ${left} photo${left > 1 ? 's' : ''}`);
   }
-  if (!resolution) missing.push('indiquez si vous souhaitez un échange ou un remboursement');
   const canSubmit = missing.length === 0;
 
   const submit = useMutation({
     mutationFn: async () => {
-      if (!canSubmit || !reasonCode || !resolution) throw new Error('Formulaire incomplet');
+      if (!canSubmit || !reasonCode) throw new Error('Formulaire incomplet');
       // `uploadAsset` construit le multipart RN lui-même : le `UploadFile` du
       // SDK sérialisait la photo en JSON et l'envoi échouait.
       const photoUrls = await Promise.all(photos.map((p) => uploadAsset(p)));
       // Même charge utile que le web (`Returns.jsx`) et que le schéma base44 :
       // l'admin lit `items[].product_name` / `quantity` / `total_price`.
-      const created = (await Return().create?.({
+      const payload = {
         order_id: route.params.orderId,
         customer_email: user?.email,
         items: selectedEntries.map((e) => ({
@@ -225,19 +283,32 @@ export const ReturnsScreen: React.FC = () => {
         })),
         reason: reasonCode,
         description: description.trim(),
-        resolution_type: resolution,
         photos: photoUrls.filter(Boolean),
-        // Un échange ne donne lieu à aucun remboursement ; sinon le montant
-        // des produits retournés, crédité sur le portefeuille par l'admin.
-        refund_amount: resolution === 'refund' ? selectedAmount : 0,
+        // Échange ou remboursement : c'est l'admin qui tranche (demande du
+        // 2026-10-01). Le montant des produits lui est transmis pour le cas où
+        // il choisit de rembourser.
+        refund_amount: selectedAmount,
         status: 'pending',
-      })) as { id: string };
+      };
+      const created = await createReturn(payload);
+      // Réclamation réactivée par l'admin : elle est consommée par cette
+      // demande (comme sur le site), sinon le client pourrait en refaire une.
+      if (orderQuery.data?.return_request_reopened) {
+        try {
+          await Order().update?.(route.params.orderId, { return_request_reopened: false });
+        } catch {
+          /* sans incidence sur la demande, déjà enregistrée */
+        }
+      }
       return created;
     },
     onSuccess: (created) => {
-      toast.success('Demande de retour envoyée');
+      clearReturnDraft();
+      toast.success('Réclamation envoyée');
       void qc.invalidateQueries({ queryKey: ['returns-mine'] });
       void qc.invalidateQueries({ queryKey: ['my-returns'] });
+      void qc.invalidateQueries({ queryKey: ['order', route.params.orderId] });
+      void qc.invalidateQueries({ queryKey: ['orders'] });
       nav.replace('ReturnDetails', { id: created.id });
     },
     onError: (e: Error) =>
@@ -264,12 +335,23 @@ export const ReturnsScreen: React.FC = () => {
       );
       return;
     }
-    const r = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.7,
-      // Pas de recadrage : la photo brute fait foi.
-      allowsEditing: false,
-    });
+    // Android peut fermer l'app pendant la prise de vue : le brouillon est
+    // écrit sur le disque avant d'ouvrir l'appareil photo.
+    cameraOpenedAt.current = Date.now();
+    persistDraft();
+    await kv.flush();
+    let r: ImagePicker.ImagePickerResult;
+    try {
+      r = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        quality: 0.7,
+        // Pas de recadrage : la photo brute fait foi.
+        allowsEditing: false,
+      });
+    } finally {
+      cameraOpenedAt.current = undefined;
+      persistDraft();
+    }
     if (r.canceled) return;
     setPhotos((p) => [
       ...p,
@@ -279,13 +361,9 @@ export const ReturnsScreen: React.FC = () => {
 
   const confirmSubmit = () => {
     if (!canSubmit) return;
-    const what =
-      resolution === 'refund'
-        ? `Remboursement de ${formatPrice(selectedAmount)} sur votre portefeuille.`
-        : 'Échange des produits sélectionnés.';
     Alert.alert(
       'Envoyer la demande ?',
-      `${selectedCount} article${selectedCount > 1 ? 's' : ''} à retourner. ${what}`,
+      `${selectedCount} article${selectedCount > 1 ? 's' : ''} concerné${selectedCount > 1 ? 's' : ''}. AfriGo choisira l’échange ou le remboursement.`,
       [
         { text: 'Annuler', style: 'cancel' },
         { text: 'Envoyer', onPress: () => submit.mutate() },
@@ -533,57 +611,6 @@ export const ReturnsScreen: React.FC = () => {
         </View>
       </ScrollView>
 
-      <Text style={[styles.section, sectionColor]}>Que souhaitez-vous ? *</Text>
-      <View style={styles.chipRow}>
-        {RETURN_RESOLUTIONS.map((opt) => {
-          const sel = resolution === opt.value;
-          const Icon = opt.value === 'refund' ? Wallet : Repeat;
-          return (
-            <Pressable
-              key={opt.value}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: sel }}
-              testID={`return-resolution-${opt.value}`}
-              onPress={() => setResolution(opt.value)}
-              style={[
-                styles.resolutionCard,
-                {
-                  borderColor: sel ? colors.brandOrange : colors.border,
-                  backgroundColor: sel ? palette.orange[50] : 'transparent',
-                },
-              ]}
-            >
-              <Icon size={18} color={sel ? colors.brandOrange : colors.foreground} />
-              <Text
-                style={{
-                  color: sel ? colors.brandOrange : colors.foreground,
-                  fontWeight: '700',
-                  marginTop: 6,
-                  textAlign: 'center',
-                }}
-              >
-                {opt.label}
-              </Text>
-              <Text
-                style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 4, textAlign: 'center' }}
-              >
-                {opt.hint}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      {resolution === 'refund' ? (
-        <View style={[styles.walletNote, { backgroundColor: palette.purple[50], borderColor: palette.purple[200] }]}>
-          <Wallet size={14} color={palette.purple[700]} />
-          <Text style={{ color: palette.purple[700], fontSize: 12, flex: 1, lineHeight: 17 }}>
-            Le remboursement se fait uniquement sur votre portefeuille AfriGo
-            {selectedAmount > 0 ? ` (${formatPrice(selectedAmount)})` : ''}, une fois le retour
-            terminé.
-          </Text>
-        </View>
-      ) : null}
-
       <Button
         title={
           selectedCount > 0
@@ -673,24 +700,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     flexGrow: 1,
     alignItems: 'center',
-  },
-  resolutionCard: {
-    flex: 1,
-    minWidth: 140,
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 2,
-    alignItems: 'center',
-  },
-  walletNote: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 10,
-    padding: 10,
-    borderRadius: 10,
-    borderWidth: 1,
   },
   expiredIcon: {
     width: 64,
