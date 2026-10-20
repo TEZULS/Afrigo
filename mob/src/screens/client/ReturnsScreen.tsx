@@ -65,6 +65,8 @@ interface OrderRow {
   delivered_date?: string;
   updated_date?: string;
   items?: OrderItem[];
+  /** Réclamation réactivée par l'admin : plus de délai d'une heure. */
+  return_request_reopened?: boolean;
 }
 
 /** Photo prise en direct, en attente d'envoi. */
@@ -306,21 +308,30 @@ export const ReturnsScreen: React.FC = () => {
    * accessible que dans l'heure qui suit la livraison, et tant qu'aucune
    * demande n'a été approuvée ou terminée sur cette commande.
    */
-  const locked = hasLockingReturn(returnsQuery.data, orderQuery.data.id);
+  const locked = hasLockingReturn(returnsQuery.data, orderQuery.data.id, {
+    reopened: orderQuery.data.return_request_reopened === true,
+  });
+  const notDelivered = orderQuery.data.status !== 'delivered';
   if (!canRequestReturn(orderQuery.data, { locked })) {
     return (
-      <Screen header={<Header onBack={nav.goBack} title="Demande de retour" />}>
+      <Screen header={<Header onBack={nav.goBack} title="Réclamation" />}>
         <Card padding={20} style={{ marginTop: 16, alignItems: 'center' }}>
           <View style={[styles.expiredIcon, { backgroundColor: palette.rose[100] }]}>
             <Clock size={28} color={palette.rose[600]} />
           </View>
           <Text style={[styles.expiredTitle, { color: colors.foreground }]}>
-            {locked ? 'Demande déjà traitée' : 'Délai dépassé'}
+            {locked
+              ? 'Demande déjà traitée'
+              : notDelivered
+                ? 'Commande pas encore livrée'
+                : 'Délai dépassé'}
           </Text>
           <Text style={[styles.expiredText, { color: colors.mutedForeground }]}>
             {locked
               ? 'Une demande de retour a déjà été acceptée pour cette commande.'
-              : `Le délai de ${RETURN_WINDOW_HOURS} h après la livraison pour demander un retour est dépassé.`}
+              : notDelivered
+                ? `Vous pourrez demander un retour pendant ${RETURN_WINDOW_HOURS} h à partir de la livraison.`
+                : `Le délai de ${RETURN_WINDOW_HOURS} h après la livraison pour demander un retour est dépassé.`}
           </Text>
           <Button
             title="Retour aux commandes"
