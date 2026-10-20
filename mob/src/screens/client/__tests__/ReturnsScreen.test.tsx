@@ -1,6 +1,7 @@
 import React from 'react';
 import { Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
+import { QueryClient } from '@tanstack/react-query';
 import { fireEvent, renderWithProviders, screen, waitFor } from '@/__tests__/test-utils';
 
 const mockReplace = jest.fn();
@@ -22,10 +23,12 @@ jest.mock('@/lib/AuthContext', () => ({
 const mockRequestCamera = jest.fn(async () => ({ status: 'granted' }));
 const mockLaunchCamera = jest.fn();
 const mockLaunchLibrary = jest.fn();
+const mockPendingResult = jest.fn(async (): Promise<unknown> => null);
 jest.mock('expo-image-picker', () => ({
   requestCameraPermissionsAsync: () => mockRequestCamera(),
   launchCameraAsync: (...a: unknown[]) => mockLaunchCamera(...a),
   launchImageLibraryAsync: (...a: unknown[]) => mockLaunchLibrary(...a),
+  getPendingResultAsync: () => mockPendingResult(),
 }));
 jest.mock('@/services/fileUpload', () => ({
   uploadAsset: jest.fn(async (p: { uri: string }) => `https://x/${p.uri.split('/').pop()}`),
@@ -223,5 +226,193 @@ describe('ReturnsScreen', () => {
     renderWithProviders(wrap(<ReturnsScreen />));
     await waitFor(() => expect(screen.getByText('Demande déjà traitée')).toBeTruthy());
     expect(screen.queryByTestId('return-item-0')).toBeNull();
+  });
+});
+
+describe('ReturnsScreen — commande relue et motif « Produit abîmé »', () => {
+  it('relit la commande : une version en cache d’avant la livraison n’affiche plus « Délai dépassé »', async () => {
+    // Comme dans l'app : pas de relecture automatique au montage, et la commande
+    // mise en cache juste après l'achat, encore « en attente ».
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 30_000, refetchOnMount: false } },
+    });
+    client.setQueryData(['order', 'ord_1'], { id: 'ord_1', status: 'pending', items: [] });
+
+    renderWithProviders(wrap(<ReturnsScreen />), { client });
+    await waitFor(() => expect(screen.getByTestId('return-item-0')).toBeTruthy());
+    expect(screen.queryByText('Délai dépassé')).toBeNull();
+  });
+
+  it('commande pas encore livrée : le message le dit, sans parler de délai', async () => {
+    mockOrderStatus = 'shipped';
+    renderWithProviders(wrap(<ReturnsScreen />));
+    await waitFor(() => expect(screen.getByText('Commande pas encore livrée')).toBeTruthy());
+    expect(screen.getByText(/pendant 1 h à partir de la livraison/)).toBeTruthy();
+    expect(screen.queryByText('Délai dépassé')).toBeNull();
+  });
+
+  it('ne propose plus « Produit abîmé » : deux motifs seulement', async () => {
+    renderWithProviders(wrap(<ReturnsScreen />));
+    await waitFor(() => expect(screen.getByTestId('return-item-0')).toBeTruthy());
+    expect(screen.getByText('Mauvais produit')).toBeTruthy();
+    expect(screen.getByText('Date expirée')).toBeTruthy();
+    expect(screen.queryByText('Produit abîmé')).toBeNull();
+  });
+});
+
+describe('ReturnsScreen — réclamation réactivée par l’admin (base44)', () => {
+  beforeEach(() => {
+    mockReopened = false;
+    mockExistingReturns = [];
+    mockDeliveredDate = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+    mockOrderUpdate.mockClear();
+    mockReturnCreate.mockClear();
+  });
+
+  it('délai d’une heure dépassé mais réclamation réactivée : le formulaire s’ouvre', async () => {
+    mockDeliveredDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    mockReopened = true;
+    renderWithProviders(wrap(<ReturnsScreen />));
+    await waitFor(() => expect(screen.getByTestId('return-item-0')).toBeTruthy());
+    expect(screen.queryByText('Délai dépassé')).toBeNull();
+  });
+
+  it('permet de refaire une réclamation après une réclamation terminée, pas pendant une réclamation en cours', async () => {
+    mockReopened = true;
+    mockExistingReturns = [{ id: 'r1', order_id: 'ord_1', status: 'completed' }];
+    const first = renderWithProviders(wrap(<ReturnsScreen />));
+    await waitFor(() => expect(screen.getByTestId('return-item-0')).toBeTruthy());
+    first.unmount();
+
+    mockExistingReturns = [{ id: 'r2', order_id: 'ord_1', status: 'approved' }];
+    renderWithProviders(wrap(<ReturnsScreen />));
+    await waitFor(() => expect(screen.getByText('Demande déjà traitée')).toBeTruthy());
+  });
+
+  it('la réactivation est consommée par la nouvelle réclamation (comme sur le site)', async () => {
+    mockDeliveredDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    mockReopened = true;
+    renderWithProviders(wrap(<ReturnsScreen />));
+    await waitFor(() => expect(screen.getByTestId('return-item-0')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('return-item-0'));
+    fireEvent.press(screen.getByText('Date expirée'));
+    fireEvent.changeText(screen.getByTestId('return-description'), 'Date dépassée à la réception');
+    await takePhoto('a.jpg');
+    await takePhoto('b.jpg');
+    await waitFor(() => expect(isDisabled()).toBe(false));
+    fireEvent.press(sendButton());
+    await waitFor(() => expect(mockReturnCreate).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockOrderUpdate).toHaveBeenCalledWith('ord_1', { return_request_reopened: false }));
+  });
+
+  it('sans réactivation, rien n’est écrit sur la commande', async () => {
+    renderWithProviders(wrap(<ReturnsScreen />));
+    await waitFor(() => expect(screen.getByTestId('return-item-0')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('return-item-0'));
+    fireEvent.press(screen.getByText('Mauvais produit'));
+    fireEvent.changeText(screen.getByTestId('return-description'), 'Pas le bon lot');
+    await takePhoto('a.jpg');
+    await takePhoto('b.jpg');
+    await waitFor(() => expect(isDisabled()).toBe(false));
+    fireEvent.press(sendButton());
+    await waitFor(() => expect(mockReturnCreate).toHaveBeenCalledTimes(1));
+    expect(mockOrderUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReturnsScreen — Android ferme l’app pendant la prise de vue', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Platform } = require('react-native');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { toast } = require('@/hooks/useToast');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { kv } = require('@/services/storage');
+  const realOS = Platform.OS;
+  afterEach(() => {
+    Platform.OS = realOS;
+  });
+
+  const fillForm = async () => {
+    await waitFor(() => expect(screen.getByTestId('return-item-0')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('return-item-0'));
+    await waitFor(() => expect(screen.getByTestId('return-qty-0')).toHaveTextContent('2'));
+    fireEvent.press(screen.getByText('Date expirée'));
+    fireEvent.changeText(screen.getByTestId('return-description'), 'Produit périmé à réception');
+  };
+  /** Appareil photo ouvert… et l'app fermée par Android avant son retour. */
+  const openCameraThenKilled = async () => {
+    mockLaunchCamera.mockReturnValueOnce(new Promise(() => {}));
+    fireEvent.press(screen.getByTestId('return-take-photo'));
+    await waitFor(() => expect(mockLaunchCamera).toHaveBeenCalled());
+  };
+
+  it('le formulaire est écrit sur le téléphone avant d’ouvrir l’appareil photo', async () => {
+    const flush = jest.spyOn(kv, 'flush');
+    renderWithProviders(wrap(<ReturnsScreen />));
+    await fillForm();
+    await openCameraThenKilled();
+    expect(flush).toHaveBeenCalled();
+    expect(flush.mock.invocationCallOrder[0]).toBeLessThan(mockLaunchCamera.mock.invocationCallOrder[0]);
+    expect(kv.get('return_claim_draft')).toMatchObject({
+      orderId: 'ord_1',
+      email: 'salma@x.fr',
+      selected: { 0: 2 },
+      reasonCode: 'expired',
+      description: 'Produit périmé à réception',
+      cameraOpenedAt: expect.any(Number),
+    });
+    flush.mockRestore();
+  });
+
+  it('au redémarrage : réclamation reprise telle quelle, avec la photo prise, et le client prévenu', async () => {
+    Platform.OS = 'android';
+    const info = jest.spyOn(toast, 'info');
+    const first = renderWithProviders(wrap(<ReturnsScreen />));
+    await fillForm();
+    await openCameraThenKilled();
+    first.unmount();
+
+    // La photo prise pendant la fermeture attend dans le module de l'appareil photo.
+    mockPendingResult.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: 'file:///cam/apres.jpg', fileName: 'apres.jpg', mimeType: 'image/jpeg' }],
+    });
+    renderWithProviders(wrap(<ReturnsScreen />));
+    await waitFor(() => expect(screen.getByLabelText('Supprimer la photo 1')).toBeTruthy());
+    expect(screen.getByTestId('return-qty-0')).toHaveTextContent('2');
+    expect(screen.getByTestId('return-description').props.value).toBe('Produit périmé à réception');
+    expect(screen.queryByText(/choisissez la raison/)).toBeNull();
+    expect(screen.getByText(/prenez encore 1 photo/)).toBeTruthy();
+    expect(info).toHaveBeenCalledWith('Réclamation reprise', expect.any(String));
+    // Revenu sur le formulaire : pas de nouvelle réouverture au démarrage suivant.
+    expect(kv.get('return_claim_draft').cameraOpenedAt).toBeUndefined();
+    info.mockRestore();
+  });
+
+  it('une photo prise depuis un autre écran n’est jamais ajoutée à la réclamation', async () => {
+    Platform.OS = 'android';
+    renderWithProviders(wrap(<ReturnsScreen />));
+    await waitFor(() => expect(screen.getByTestId('return-item-0')).toBeTruthy());
+    expect(mockPendingResult).not.toHaveBeenCalled();
+  });
+
+  it('appareil photo refermé normalement : plus de réouverture prévue', async () => {
+    renderWithProviders(wrap(<ReturnsScreen />));
+    await fillForm();
+    await takePhoto('a.jpg');
+    expect(kv.get('return_claim_draft').cameraOpenedAt).toBeUndefined();
+    expect(kv.get('return_claim_draft').photos).toHaveLength(1);
+  });
+
+  it('réclamation envoyée : le brouillon est effacé', async () => {
+    renderWithProviders(wrap(<ReturnsScreen />));
+    await fillForm();
+    await takePhoto('a.jpg');
+    await takePhoto('b.jpg');
+    expect(kv.get('return_claim_draft')).not.toBeNull();
+    await waitFor(() => expect(isDisabled()).toBe(false));
+    fireEvent.press(sendButton());
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('ReturnDetails', { id: 'ret_1' }));
+    expect(kv.get('return_claim_draft')).toBeNull();
   });
 });
