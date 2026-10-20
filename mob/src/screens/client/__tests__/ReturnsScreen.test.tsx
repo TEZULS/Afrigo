@@ -35,13 +35,18 @@ const mockReturnCreate = jest.fn(async () => ({ id: 'ret_1' }));
 let mockExistingReturns: { id: string; order_id: string; status: string }[] = [];
 /** Livrée il y a 20 min : dans la fenêtre d'une heure. */
 let mockDeliveredDate = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+let mockOrderStatus = 'delivered';
+/** Réclamation réactivée par l'admin depuis base44. */
+let mockReopened = false;
+const mockOrderUpdate = jest.fn(async () => ({}));
 
 jest.mock('@/api/entities', () => ({
   Order: () => ({
     get: jest.fn(async () => ({
       id: 'ord_1',
-      status: 'delivered',
+      status: mockOrderStatus,
       delivered_date: mockDeliveredDate,
+      return_request_reopened: mockReopened,
       items: [
         { product_id: 'p1', product_name: 'Crabe Madagascar 1Kg', quantity: 2, unit_price: 15.39 },
         {
@@ -53,12 +58,14 @@ jest.mock('@/api/entities', () => ({
         },
       ],
     })),
+    update: mockOrderUpdate,
   }),
   Product: () => ({ get: jest.fn(async (id: string) => ({ id, image_url: `https://img/${id}.png` })) }),
   Return: () => ({ create: mockReturnCreate, filter: jest.fn(async () => mockExistingReturns) }),
 }));
 
 import { ReturnsScreen } from '../ReturnsScreen';
+import { clearReturnDraft } from '@/utils/returnDraft';
 
 const wrap = (ui: React.ReactElement) => <NavigationContainer>{ui}</NavigationContainer>;
 
@@ -78,8 +85,10 @@ const takePhoto = async (name: string) => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  clearReturnDraft();
   mockExistingReturns = [];
   mockDeliveredDate = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+  mockOrderStatus = 'delivered';
   mockRequestCamera.mockResolvedValue({ status: 'granted' });
   jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => {
     buttons?.find((b) => b.text === 'Envoyer')?.onPress?.();
@@ -95,7 +104,7 @@ describe('ReturnsScreen', () => {
     expect(screen.getByText(/15,39 €.*2 commandés/)).toBeTruthy();
   });
 
-  it('exige produit, raison, description, 2 photos en direct et le choix échange / remboursement', async () => {
+  it('exige produit, raison, description et 2 photos en direct — pas de choix échange / remboursement', async () => {
     renderWithProviders(wrap(<ReturnsScreen />));
     await waitFor(() => expect(screen.getByTestId('return-item-0')).toBeTruthy());
     expect(isDisabled()).toBe(true);
@@ -112,18 +121,16 @@ describe('ReturnsScreen', () => {
     expect(screen.getByText(/prenez encore 1 photo/)).toBeTruthy();
     await takePhoto('b.jpg');
     expect(screen.queryByText(/prenez encore/)).toBeNull();
-    // Toujours bloqué : il manque le type de résolution.
-    expect(isDisabled()).toBe(true);
-    expect(screen.getByText(/échange ou un remboursement/)).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('return-resolution-refund'));
+    // C'est l'admin qui choisit échange ou remboursement : rien à cocher ici.
+    expect(screen.queryByTestId('return-resolution-refund')).toBeNull();
+    expect(screen.queryByTestId('return-resolution-exchange')).toBeNull();
     await waitFor(() => expect(isDisabled()).toBe(false));
     // Les photos viennent de l'appareil photo, jamais de la galerie.
     expect(mockLaunchCamera).toHaveBeenCalledTimes(2);
     expect(mockLaunchLibrary).not.toHaveBeenCalled();
   });
 
-  it('envoie la demande au format base44 (remboursement sur le portefeuille)', async () => {
+  it('envoie la réclamation au format base44, sans résolution (choisie par l’admin)', async () => {
     renderWithProviders(wrap(<ReturnsScreen />));
     await waitFor(() => expect(screen.getByTestId('return-item-0')).toBeTruthy());
 
@@ -135,9 +142,7 @@ describe('ReturnsScreen', () => {
     fireEvent.changeText(screen.getByTestId('return-description'), 'Produit périmé à réception');
     await takePhoto('a.jpg');
     await takePhoto('b.jpg');
-    fireEvent.press(screen.getByTestId('return-resolution-refund'));
     await waitFor(() => expect(isDisabled()).toBe(false));
-    expect(screen.getByText(/uniquement sur votre portefeuille AfriGo \(15,39 €\)/)).toBeTruthy();
 
     fireEvent.press(sendButton());
     await waitFor(() => expect(mockReturnCreate).toHaveBeenCalled());
@@ -148,7 +153,6 @@ describe('ReturnsScreen', () => {
       items: [{ product_name: 'Crabe Madagascar 1Kg', quantity: 1, total_price: 15.39 }],
       reason: 'expired',
       description: 'Produit périmé à réception',
-      resolution_type: 'refund',
       photos: ['https://x/a.jpg', 'https://x/b.jpg'],
       refund_amount: 15.39,
       status: 'pending',
@@ -156,7 +160,8 @@ describe('ReturnsScreen', () => {
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('ReturnDetails', { id: 'ret_1' }));
   });
 
-  it('un échange ne demande aucun remboursement', async () => {
+  it('si base44 exige encore une résolution, renvoie la réclamation avec une valeur d’attente', async () => {
+    mockReturnCreate.mockRejectedValueOnce(new Error('resolution_type is required'));
     renderWithProviders(wrap(<ReturnsScreen />));
     await waitFor(() => expect(screen.getByTestId('return-item-1')).toBeTruthy());
     fireEvent.press(screen.getByTestId('return-item-1'));
@@ -164,15 +169,15 @@ describe('ReturnsScreen', () => {
     fireEvent.changeText(screen.getByTestId('return-description'), 'Ce n’est pas le bon lot');
     await takePhoto('a.jpg');
     await takePhoto('b.jpg');
-    fireEvent.press(screen.getByTestId('return-resolution-exchange'));
     await waitFor(() => expect(isDisabled()).toBe(false));
 
     fireEvent.press(sendButton());
-    await waitFor(() => expect(mockReturnCreate).toHaveBeenCalled());
-    const payload = (mockReturnCreate.mock.calls[0] as unknown as [Record<string, unknown>])[0];
-    expect(payload.resolution_type).toBe('exchange');
-    expect(payload.refund_amount).toBe(0);
-    expect(payload.reason).toBe('wrong_product');
+    await waitFor(() => expect(mockReturnCreate).toHaveBeenCalledTimes(2));
+    const first = (mockReturnCreate.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    const retry = (mockReturnCreate.mock.calls[1] as unknown as [Record<string, unknown>])[0];
+    expect(first.resolution_type).toBeUndefined();
+    expect(retry.resolution_type).toBe('exchange');
+    expect(retry.reason).toBe('wrong_product');
   });
 
   it('une photo supprimée ne compte plus', async () => {
