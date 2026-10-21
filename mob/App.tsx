@@ -19,6 +19,7 @@ import { configureNotificationHandler } from '@/services/pushNotifications';
 import { ToastHost } from '@/components/ui/ToastHost';
 import { LegalConsentGate } from '@/components/legal/LegalConsentGate';
 import { LaunchIntro } from '@/components/LaunchIntro';
+import { ReturnDraftRestorer } from '@/components/ReturnDraftRestorer';
 import { useLaunchIntro } from '@/stores/launchIntro';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
@@ -71,6 +72,8 @@ export default function App() {
   const appBody = (
     <AuthProvider>
       <PushNotificationsBridge />
+      {/* Android a fermé l'app pendant une photo de réclamation : retour au formulaire. */}
+      <ReturnDraftRestorer />
       <RootNavigator />
       {/* Règlement intérieur + politique de confidentialité à accepter (1er lancement, nouvelle version). */}
       <LegalConsentGate />
