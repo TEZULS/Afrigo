@@ -68,7 +68,7 @@ export const MyReturnsScreen: React.FC = () => {
 
   return (
     <Screen scroll={false} bottomBar={<PersistentBottomNav />}>
-      <Header title="Mes retours" />
+      <Header title="Réclamation" />
       <Pressable
         accessibilityRole="link"
         onPress={() =>
