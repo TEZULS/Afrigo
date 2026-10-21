@@ -97,14 +97,14 @@ describe('OrderDetailsScreen', () => {
     });
   });
 
-  it('garde « Demander un retour » tant qu’aucune demande n’est approuvée (plusieurs demandes possibles)', async () => {
+  it('garde « Réclamation » tant qu’aucune demande n’est approuvée (plusieurs demandes possibles)', async () => {
     mockReturns = [
       { id: 'r1', order_id: 'ord_9b81a19f', status: 'rejected' },
       { id: 'r2', order_id: 'ord_9b81a19f', status: 'pending' },
     ];
     renderWithProviders(wrap(<OrderDetailsScreen />));
-    await waitFor(() => expect(screen.getByText('Demander un retour')).toBeTruthy());
-    fireEvent.press(screen.getByText('Demander un retour'));
+    await waitFor(() => expect(screen.getByText('Réclamation')).toBeTruthy());
+    fireEvent.press(screen.getByText('Réclamation'));
     expect(mockNavigate).toHaveBeenCalledWith('Returns', { orderId: 'ord_9b81a19f' });
   });
 
@@ -112,14 +112,14 @@ describe('OrderDetailsScreen', () => {
     mockReturns = [{ id: 'r3', order_id: 'ord_9b81a19f', status: 'approved' }];
     renderWithProviders(wrap(<OrderDetailsScreen />));
     await waitFor(() => expect(screen.getByTestId('order-invoice')).toBeTruthy());
-    await waitFor(() => expect(screen.queryByText('Demander un retour')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Réclamation')).toBeNull());
   });
 
   it('masque le bouton une heure après la livraison', async () => {
     mockDeliveredDate = new Date(Date.now() - 61 * 60 * 1000).toISOString();
     renderWithProviders(wrap(<OrderDetailsScreen />));
     await waitFor(() => expect(screen.getByTestId('order-invoice')).toBeTruthy());
-    expect(screen.queryByText('Demander un retour')).toBeNull();
+    expect(screen.queryByText('Réclamation')).toBeNull();
   });
 });
 
