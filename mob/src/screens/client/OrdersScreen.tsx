@@ -604,7 +604,7 @@ export const OrdersScreen: React.FC = () => {
               ) : null}
               {canReturn(item) ? (
                 <Button
-                  title="Demander un retour"
+                  title="Réclamation"
                   variant="outline"
                   size="sm"
                   fullWidth

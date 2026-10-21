@@ -438,7 +438,7 @@ export const OrderDetailsScreen: React.FC = () => {
 
       {canRequestReturn ? (
         <Button
-          title="Demander un retour"
+          title="Réclamation"
           variant="ghost"
           fullWidth
           leftIcon={<RotateCcw size={16} color={colors.foreground} />}

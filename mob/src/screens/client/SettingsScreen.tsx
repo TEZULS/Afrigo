@@ -40,8 +40,8 @@ const ENTRIES: SettingsEntry[] = [
     route: 'PaymentMethods',
   },
   {
-    name: 'Mes retours',
-    description: 'Suivre et effectuer des retours',
+    name: 'Réclamation',
+    description: 'Suivre vos réclamations',
     Icon: RotateCcw,
     route: 'MyReturns',
   },

@@ -426,7 +426,7 @@ export const ReturnsScreen: React.FC = () => {
   const sectionColor = { color: colors.foreground };
 
   return (
-    <Screen scroll header={<Header onBack={nav.goBack} title="Demande de retour" />}>
+    <Screen scroll header={<Header onBack={nav.goBack} title="Réclamation" />}>
       <Text style={[styles.section, sectionColor]}>Articles à retourner *</Text>
       <Text style={[styles.hint, { color: colors.mutedForeground }]}>
         Cochez les produits concernés et ajustez la quantité si besoin.
