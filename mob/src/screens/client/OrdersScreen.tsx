@@ -65,6 +65,8 @@ interface OrderRow {
   customer_email?: string;
   delivery_city?: string;
   items?: { product_id?: string; product_name?: string; name?: string; quantity: number; unit_price?: number }[];
+  /** Réclamation réactivée par l'admin : plus de délai d'une heure. */
+  return_request_reopened?: boolean;
 }
 
 interface RefundRow {
@@ -397,7 +399,9 @@ export const OrdersScreen: React.FC = () => {
    * fait disparaître le bouton de lui-même une fois le délai écoulé.
    */
   const canReturn = (o: OrderRow) =>
-    canRequestReturn(o, { locked: hasLockingReturn(returnsQuery.data, o.id) });
+    canRequestReturn(o, {
+      locked: hasLockingReturn(returnsQuery.data, o.id, { reopened: o.return_request_reopened === true }),
+    });
 
   const cancelledHasNoCardRefund =
     refundTarget?.payment_method === 'card' && (refundTarget?.wallet_amount_used ?? 0) === 0;
