@@ -77,3 +77,23 @@ describe('documents légaux — rendu', () => {
     ]);
   });
 });
+
+describe('parseLegalContent — texte brut de la politique de confidentialité', () => {
+  const raw =
+    'POLITIQUE DE CONFIDENTIALITÉ\n\nDernière mise à jour : 18/04/2026\n\n1. COLLECTE DES DONNÉES\nNous collectons les informations que vous nous fournissez.\n\n2. UTILISATION DES DONNÉES\n- Traiter vos commandes';
+
+  it('masque la ligne « Dernière mise à jour »', () => {
+    const texts = parseLegalContent(raw).map((b) => ('text' in b ? b.text : ''));
+    expect(texts.some((t) => /mise à jour/i.test(t))).toBe(false);
+  });
+
+  it('fait des lignes en capitales des titres, séparés de leur paragraphe', () => {
+    expect(parseLegalContent(raw)).toEqual([
+      { type: 'heading', level: 2, text: 'POLITIQUE DE CONFIDENTIALITÉ' },
+      { type: 'heading', level: 3, text: '1. COLLECTE DES DONNÉES' },
+      { type: 'paragraph', text: 'Nous collectons les informations que vous nous fournissez.' },
+      { type: 'heading', level: 3, text: '2. UTILISATION DES DONNÉES' },
+      { type: 'bullet', text: 'Traiter vos commandes' },
+    ]);
+  });
+});
