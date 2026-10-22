@@ -135,6 +135,20 @@ export interface LegalSpan {
   bold: boolean;
 }
 
+/** Ligne de date de mise à jour en tête des textes : masquée à l'affichage (demande du 2026-09-28). */
+const UPDATED_ON_LINE = /^derni[èe]re\s+mise\s+à\s+jour\b/i;
+
+/**
+ * Titre écrit en capitales dans un texte brut (« POLITIQUE DE
+ * CONFIDENTIALITÉ », « 1. COLLECTE DES DONNÉES ») : aucune minuscule, au
+ * moins trois lettres, ligne courte. Sans expression régulière Unicode.
+ */
+const isUppercaseHeading = (line: string): boolean => {
+  if (line.length > 90 || line !== line.toUpperCase()) return false;
+  const letters = [...line].filter((ch) => ch.toLowerCase() !== ch.toUpperCase()).length;
+  return letters >= 3;
+};
+
 const decodeEntities = (s: string): string =>
   s
     .replace(/&nbsp;/g, ' ')
@@ -174,6 +188,7 @@ export const parseLegalContent = (raw: string | null | undefined): LegalBlock[] 
       flush();
       continue;
     }
+    if (UPDATED_ON_LINE.test(line)) continue;
     const heading = /^(#{1,3})\s+(.*)$/.exec(line);
     if (heading) {
       flush();
@@ -193,6 +208,11 @@ export const parseLegalContent = (raw: string | null | undefined): LegalBlock[] 
     if (bullet) {
       flush();
       blocks.push({ type: 'bullet', text: bullet[1]!.trim() });
+      continue;
+    }
+    if (isUppercaseHeading(line)) {
+      flush();
+      blocks.push({ type: 'heading', level: /^\d/.test(line) ? 3 : 2, text: line });
       continue;
     }
     paragraph.push(line);
