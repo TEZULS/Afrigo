@@ -132,3 +132,27 @@ describe('LegalConsentGate', () => {
     await waitFor(() => expect(screen.getByTestId('legal-gate-regulations')).toBeTruthy());
   });
 });
+
+describe('LegalConsentGate — accord donné une seule fois, avant connexion ou inscription', () => {
+  it('accepté en invité : plus rien à la connexion, et l’accord est reporté sur le profil', async () => {
+    const guest = renderWithProviders(<LegalConsentGate />);
+    await waitFor(() => expect(screen.getByTestId('legal-gate-regulations')).toBeTruthy());
+    await acceptCurrentStep();
+    await waitFor(() => expect(screen.getByTestId('legal-gate-privacy')).toBeTruthy());
+    await acceptCurrentStep();
+    await waitFor(() => expect(screen.queryByTestId('legal-gate-privacy')).toBeNull());
+    guest.unmount();
+    expect(mockUpdateMe).not.toHaveBeenCalled();
+
+    // Le client finit son inscription / se connecte : profil sans version acceptée.
+    mockUser = { email: 'nouveau@x.fr', privacy_policy_accepted_version: null };
+    renderWithProviders(<LegalConsentGate />);
+    await waitFor(() =>
+      expect(mockUpdateMe).toHaveBeenCalledWith(
+        expect.objectContaining({ privacy_policy_accepted_version: '1.0' }),
+      ),
+    );
+    expect(screen.queryByTestId('legal-gate-regulations')).toBeNull();
+    expect(screen.queryByTestId('legal-gate-privacy')).toBeNull();
+  });
+});
