@@ -16,22 +16,35 @@ import { userErrorMessage } from '@/lib/userErrors';
 import {
   displayablePrivacyPolicy,
   displayableRegulations,
+  legacyAcceptanceKeys,
   privacyAccepted,
-  privacyAcceptanceKey,
+  PRIVACY_ACCEPTANCE_KEY,
   regulationsAccepted,
-  regulationsAcceptanceKey,
+  REGULATIONS_ACCEPTANCE_KEY,
   type PrivacyAcceptance,
   type PrivacyPolicyDoc,
   type RegulationsAcceptance,
   type RegulationsDoc,
 } from '@/utils/legalDocuments';
 import { LegalContent } from './LegalContent';
+import { useLaunchIntro } from '@/stores/launchIntro';
+
+/** Accord de l'appareil, ou à défaut celui qu'une ancienne version de l'app a rangé par compte. */
+const readAcceptance = <T,>(key: string, email?: string | null): T | undefined =>
+  kv.get<T>(key) ??
+  legacyAcceptanceKeys(key, email)
+    .map((legacy) => kv.get<T>(legacy))
+    .find((value): value is NonNullable<typeof value> => value != null) ??
+  undefined;
 
 /**
  * Porte d'entrée légale : au lancement, **avant toute utilisation ou connexion**
  * et pour tout le monde (invité comme client), le règlement intérieur puis la
  * politique de confidentialité doivent être acceptés. Tant qu'un texte n'est
  * pas accepté, la fenêtre reste affichée (impossible à fermer autrement).
+ *
+ * L'accord vaut pour l'appareil : une fois donné, se connecter ou finir son
+ * inscription ne le redemande pas (il est alors reporté sur le profil).
  *
  * Nouvelle version publiée par l'admin → nouvelle demande d'accord.
  */
@@ -41,6 +54,8 @@ export const LegalConsentGate: React.FC = () => {
   const toast = useToast();
   const { user, isLoadingAuth, isLoadingPublicSettings, refreshUser, logout } = useAuth();
   const email = user?.email;
+  /** Attend la fin de l'animation d'ouverture (une `Modal` la recouvrirait). */
+  const introDone = useLaunchIntro((s) => s.done);
 
   const [hydrated, setHydrated] = useState(false);
   /** Incrémenté après chaque acceptation locale pour relire le stockage. */
@@ -83,14 +98,14 @@ export const LegalConsentGate: React.FC = () => {
 
   const regulationsPending = useMemo(() => {
     if (!ready || !regulations) return false;
-    const acc = kv.get<RegulationsAcceptance>(regulationsAcceptanceKey(email));
+    const acc = readAcceptance<RegulationsAcceptance>(REGULATIONS_ACCEPTANCE_KEY, email);
     return !regulationsAccepted(regulations, acc);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, regulations, email, localVersion]);
 
   const privacyPending = useMemo(() => {
     if (!ready || !policy) return false;
-    const local = kv.get<PrivacyAcceptance>(privacyAcceptanceKey(email));
+    const local = readAcceptance<PrivacyAcceptance>(PRIVACY_ACCEPTANCE_KEY, email);
     const profileVersion = user?.privacy_policy_accepted_version as number | string | null | undefined;
     return !privacyAccepted(policy, profileVersion, local);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -113,13 +128,13 @@ export const LegalConsentGate: React.FC = () => {
     try {
       const acceptedAt = new Date().toISOString();
       if (step === 'regulations' && regulations) {
-        kv.set(regulationsAcceptanceKey(email), {
+        kv.set(REGULATIONS_ACCEPTANCE_KEY, {
           regulationId: regulations.id,
           regulationVersion: regulations.version ?? '',
           acceptedAt,
         } satisfies RegulationsAcceptance);
       } else if (step === 'privacy' && policy) {
-        kv.set(privacyAcceptanceKey(email), {
+        kv.set(PRIVACY_ACCEPTANCE_KEY, {
           version: policy.version ?? '',
           acceptedAt,
         } satisfies PrivacyAcceptance);
@@ -162,7 +177,7 @@ export const LegalConsentGate: React.FC = () => {
     }
   }, [email, logout, step]);
 
-  if (!step) return null;
+  if (!step || !introDone) return null;
 
   const doc = step === 'regulations' ? regulations : policy;
   const title =

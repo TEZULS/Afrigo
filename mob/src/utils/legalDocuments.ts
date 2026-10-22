@@ -77,13 +77,21 @@ export const displayableRegulations = (docs: RegulationsDoc[]): RegulationsDoc |
 export const displayablePrivacyPolicy = (docs: PrivacyPolicyDoc[]): PrivacyPolicyDoc | null =>
   activePrivacyPolicy(docs) ?? [...docs].sort(newest)[0] ?? null;
 
-/** Clé de stockage local par compte (`guest` hors connexion), comme le site. */
-export const legalSubject = (email?: string | null): string => (email?.trim() || 'guest').toLowerCase();
+/**
+ * Accord donné **une seule fois par appareil**, avant toute connexion ou
+ * inscription (demande du 2026-09-28) : se connecter ou créer son compte
+ * ensuite ne le redemande pas. Seule une nouvelle version le redemande.
+ */
+export const REGULATIONS_ACCEPTANCE_KEY = 'legal_regulations_accepted';
+export const PRIVACY_ACCEPTANCE_KEY = 'legal_privacy_accepted';
 
-export const regulationsAcceptanceKey = (email?: string | null) =>
-  `legal_regulations_accepted:${legalSubject(email)}`;
-export const privacyAcceptanceKey = (email?: string | null) =>
-  `legal_privacy_accepted:${legalSubject(email)}`;
+/**
+ * Anciennes clés, par compte (`guest` hors connexion, sinon l'e-mail) : encore
+ * lues pour ne pas redemander un accord déjà donné avec une version précédente
+ * de l'app.
+ */
+export const legacyAcceptanceKeys = (base: string, email?: string | null): string[] =>
+  ['guest', email?.trim().toLowerCase()].filter(Boolean).map((who) => `${base}:${who}`);
 
 export const regulationsAccepted = (
   doc: RegulationsDoc | null,
