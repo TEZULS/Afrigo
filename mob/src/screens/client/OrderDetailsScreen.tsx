@@ -190,7 +190,9 @@ export const OrderDetailsScreen: React.FC = () => {
    * n'apparaissait jamais.
    */
   const canRequestReturn = canRequestReturnHelper(order, {
-    locked: hasLockingReturn(returnsQuery.data, order.id),
+    locked: hasLockingReturn(returnsQuery.data, order.id, {
+      reopened: order.return_request_reopened === true,
+    }),
   });
 
   return (
