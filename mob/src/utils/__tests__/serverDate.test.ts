@@ -60,3 +60,24 @@ describe('formatDateTime', () => {
     expect(formatDateTime(naive)).toBe(expected);
   });
 });
+
+describe('parseServerDate — fuseau explicite avec microsecondes', () => {
+  it('garde le fuseau et ne dépend pas du moteur JavaScript', () => {
+    // Moteur strict (comme certains moteurs mobiles) : refuse plus de 3 décimales.
+    const RealDate = Date;
+    class StrictDate extends RealDate {
+      constructor(value?: string | number | Date) {
+        super(value === undefined ? RealDate.now() : typeof value === 'string' && /\.\d{4,}/.test(value) ? NaN : value);
+      }
+    }
+    global.Date = StrictDate as DateConstructor;
+    try {
+      expect(parseServerDate('2026-10-20T13:06:04.455123+00:00').toISOString()).toBe('2026-10-20T13:06:04.455Z');
+      expect(parseServerDate('2026-10-20T15:06:04.455123+02:00').toISOString()).toBe('2026-10-20T13:06:04.455Z');
+      expect(parseServerDate('2026-10-20T13:06:04.455123Z').toISOString()).toBe('2026-10-20T13:06:04.455Z');
+      expect(parseServerDate('2026-10-20T13:06:04.455000').toISOString()).toBe('2026-10-20T13:06:04.455Z');
+    } finally {
+      global.Date = RealDate;
+    }
+  });
+});

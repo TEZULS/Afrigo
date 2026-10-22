@@ -27,7 +27,9 @@ export const parseServerDate = (value: string | number | Date | null | undefined
   if (typeof value === 'number') return new Date(value);
   if (!value) return new Date(NaN);
   const s = String(value).trim();
-  return new Date(NAIVE_DATETIME.test(s) ? normalizeNaive(s) : s);
+  if (NAIVE_DATETIME.test(s)) return new Date(normalizeNaive(s));
+  // `…54.881000+00:00` : même réduction de la fraction, le fuseau est conservé.
+  return new Date(s.replace(/(\.\d{3})\d+(?=(Z|[+-]\d{2}:?\d{2})$)/i, '$1'));
 };
 
 /** Horodatage en ms, `0` si absent ou illisible. */

@@ -379,3 +379,11 @@ console.error = (...args) => {
   }
   ORIG_ERROR(...args);
 };
+
+// WebView (aperçu de facture, recettes) : simple vue en test.
+jest.mock('react-native-webview', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const WebView = (props) => React.createElement(View, { testID: props.testID });
+  return { __esModule: true, WebView, default: WebView };
+});

@@ -241,5 +241,8 @@ export function orderIssueMessage(
     if (lower.startsWith(`${prefix}:`) || lower === prefix) return fr;
   }
 
-  return translateUserError(raw, fallback);
+  const translated = translateUserError(raw, '');
+  if (translated) return translated;
+  // Motif saisi par l'admin dans base44 (« Client absent ») : affiché tel quel.
+  return isTechnicalMessage(raw) ? fallback : raw;
 }

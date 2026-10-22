@@ -26,9 +26,8 @@ import { OrderTracker } from '@/components/orders/OrderTracker';
 import { OrderStatusBadge } from '@/components/orders/OrderStatusBadge';
 import { Order, Return } from '@/api/entities';
 import { useAuth } from '@/lib/AuthContext';
-import { orderIssueMessage, userErrorMessage } from '@/lib/userErrors';
+import { orderIssueMessage } from '@/lib/userErrors';
 import { useTheme } from '@/theme/ThemeProvider';
-import { useToast } from '@/hooks/useToast';
 import { formatDateTime, formatPrice } from '@/utils/format';
 import { shouldShowDeliveryCode } from '@/utils/deliveryCode';
 import {
@@ -38,7 +37,9 @@ import {
   paidByWalletOnly,
   type ReturnRequestRow,
 } from '@/utils/orderHelpers';
-import { shareOrderInvoice } from '@/services/invoice';
+import { InvoicePreview } from '@/components/orders/InvoicePreview';
+import { MissedDeliveriesCard } from '@/components/orders/MissedDeliveriesCard';
+import { missedDeliveriesOf, type MissedDelivery } from '@/utils/missedDeliveries';
 import type { RootStackParamList } from '@/navigation/types';
 
 interface OrderItem {
@@ -79,6 +80,10 @@ interface OrderFull {
   cancellation_reason?: string;
   delivered_date?: string;
   updated_date?: string;
+  /** Passages manqués signalés par le livreur (motif + date). */
+  missed_deliveries?: MissedDelivery[];
+  /** Réclamation réactivée par l'admin : plus de délai d'une heure. */
+  return_request_reopened?: boolean;
   items?: OrderItem[];
   created_date?: string;
 }
@@ -90,11 +95,13 @@ export const OrderDetailsScreen: React.FC = () => {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
   const { user } = useAuth();
-  const toast = useToast();
-  const [invoiceBusy, setInvoiceBusy] = React.useState(false);
+  const [invoiceOpen, setInvoiceOpen] = React.useState(false);
 
+  // Relue à chaque ouverture : statut, livraison et bouton de retour à jour.
   const query = useQuery<OrderFull | null>({
     queryKey: ['order', route.params.id],
+    staleTime: 0,
+    refetchOnMount: 'always',
     queryFn: async () => ((await Order().get?.(route.params.id)) ?? null) as OrderFull | null,
   });
 
@@ -165,30 +172,14 @@ export const OrderDetailsScreen: React.FC = () => {
       : 'Paiement par carte';
   const PaymentIcon = walletOnly || order.payment_method === 'delivery' ? Wallet : CreditCard;
 
-  /**
-   * Facture PDF générée sur l'appareil puis proposée à l'enregistrement /
-   * au partage (Fichiers, mail…).
-   */
-  const downloadInvoice = async () => {
-    if (invoiceBusy) return;
-    setInvoiceBusy(true);
-    try {
-      await shareOrderInvoice(order, {
-        email: user?.email,
-        full_name: user?.full_name,
-        first_name: user?.['first_name'] as string | undefined,
-        last_name: user?.['last_name'] as string | undefined,
-        customer_id: user?.customer_id,
-        phone: user?.['phone'] as string | undefined,
-      });
-    } catch (e) {
-      toast.error(
-        'Facture indisponible',
-        userErrorMessage(e, 'La facture n’a pas pu être générée. Réessayez dans un instant.'),
-      );
-    } finally {
-      setInvoiceBusy(false);
-    }
+  /** Client figurant sur la facture (aperçu, puis PDF à télécharger). */
+  const invoiceCustomer = {
+    email: user?.email,
+    full_name: user?.full_name,
+    first_name: user?.['first_name'] as string | undefined,
+    last_name: user?.['last_name'] as string | undefined,
+    customer_id: user?.customer_id,
+    phone: user?.['phone'] as string | undefined,
   };
 
   /**
@@ -199,7 +190,9 @@ export const OrderDetailsScreen: React.FC = () => {
    * n'apparaissait jamais.
    */
   const canRequestReturn = canRequestReturnHelper(order, {
-    locked: hasLockingReturn(returnsQuery.data, order.id),
+    locked: hasLockingReturn(returnsQuery.data, order.id, {
+      reopened: order.return_request_reopened === true,
+    }),
   });
 
   return (
@@ -218,6 +211,11 @@ export const OrderDetailsScreen: React.FC = () => {
           <OrderTracker status={order.status ?? 'pending'} />
         ) : null}
       </Card>
+
+      <MissedDeliveriesCard
+        missed={missedDeliveriesOf(order)}
+        stillInDelivery={!['delivered', 'cancelled', 'not_delivered', 'failed_delivery'].includes(order.status ?? '')}
+      />
 
       {shouldShowDeliveryCode(order.status, order.delivery_code) ? (
         <Card padding={16} style={{ marginTop: 12, borderColor: colors.brandGreen }}>
@@ -416,12 +414,10 @@ export const OrderDetailsScreen: React.FC = () => {
           title="Facture"
           variant="outline"
           fullWidth
-          loading={invoiceBusy}
-          disabled={invoiceBusy}
           leftIcon={<FileText size={16} color={colors.foreground} />}
-          onPress={() => void downloadInvoice()}
+          onPress={() => setInvoiceOpen(true)}
           style={{ flex: 1 }}
-          accessibilityHint="Télécharge la facture PDF de cette commande"
+          accessibilityHint="Affiche l’aperçu de la facture, à télécharger ensuite"
           testID="order-invoice"
         />
         ) : null}
@@ -446,6 +442,12 @@ export const OrderDetailsScreen: React.FC = () => {
           style={{ marginTop: 8 }}
         />
       ) : null}
+      <InvoicePreview
+        visible={invoiceOpen}
+        order={order}
+        customer={invoiceCustomer}
+        onClose={() => setInvoiceOpen(false)}
+      />
     </Screen>
   );
 };

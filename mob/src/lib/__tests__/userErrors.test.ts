@@ -150,3 +150,10 @@ describe('orderIssueMessage', () => {
     );
   });
 });
+
+describe('orderIssueMessage — motif saisi par l’admin', () => {
+  it('affiche le motif de base44 tel quel', () => {
+    expect(orderIssueMessage('Client absent ', 'La livraison n’a pas pu être effectuée.')).toBe('Client absent');
+    expect(orderIssueMessage('Plus besoin', 'x')).toBe('Plus besoin');
+  });
+});
