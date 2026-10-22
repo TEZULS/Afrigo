@@ -145,3 +145,43 @@ describe('OrderDetailsScreen — facture selon le paiement', () => {
     mockOrderOverride = {};
   });
 });
+
+describe('OrderDetailsScreen — tentative de livraison et réclamation réactivée', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReturns = [];
+    mockOrderOverride = {};
+    mockDeliveredDate = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  });
+
+  it('affiche chaque livraison manquée avec sa date et son motif', async () => {
+    mockOrderOverride = {
+      status: 'shipped',
+      missed_deliveries: [
+        { reason: 'Client absent', date: '2026-10-12T19:38:30.000Z' },
+        { reason: 'Adresse introuvable', date: '2026-10-13T09:10:00.000Z' },
+      ],
+    };
+    renderWithProviders(wrap(<OrderDetailsScreen />));
+    await waitFor(() => expect(screen.getByTestId('order-missed-deliveries')).toBeTruthy());
+    expect(screen.getByText('Tentative de livraison')).toBeTruthy();
+    expect(screen.getByText('1ère livraison manquée')).toBeTruthy();
+    expect(screen.getByText('2ème livraison manquée')).toBeTruthy();
+    expect(screen.getByText(/Motif : Client absent/)).toBeTruthy();
+    expect(screen.getByText(/reste en cours de livraison/)).toBeTruthy();
+  });
+
+  it('rien quand aucune livraison n’a été manquée', async () => {
+    renderWithProviders(wrap(<OrderDetailsScreen />));
+    await waitFor(() => expect(screen.getByTestId('order-invoice')).toBeTruthy());
+    expect(screen.queryByTestId('order-missed-deliveries')).toBeNull();
+  });
+
+  it('réclamation réactivée depuis base44 : le bouton revient, même des jours après la livraison', async () => {
+    mockDeliveredDate = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
+    mockReturns = [{ id: 'r1', order_id: 'ord_9b81a19f', status: 'completed' }];
+    mockOrderOverride = { return_request_reopened: true };
+    renderWithProviders(wrap(<OrderDetailsScreen />));
+    await waitFor(() => expect(screen.getByText('Réclamation')).toBeTruthy());
+  });
+});
