@@ -29,6 +29,7 @@ jest.mock('@/lib/AuthContext', () => ({
 
 const mockShareOrderInvoice = jest.fn(async (_order?: unknown, _customer?: unknown) => {});
 jest.mock('@/services/invoice', () => ({
+  ...jest.requireActual('@/services/invoice'),
   shareOrderInvoice: (o: unknown, c: unknown) => mockShareOrderInvoice(o, c),
 }));
 
@@ -82,7 +83,11 @@ describe('OrderDetailsScreen', () => {
     fireEvent.press(screen.getByTestId('order-support'));
     expect(mockNavigate).toHaveBeenCalledWith('Messages');
 
+    // Aperçu d'abord, téléchargement ensuite.
     fireEvent.press(screen.getByTestId('order-invoice'));
+    await waitFor(() => expect(screen.getByTestId('invoice-preview')).toBeTruthy());
+    expect(mockShareOrderInvoice).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId('invoice-download'));
     await waitFor(() => expect(mockShareOrderInvoice).toHaveBeenCalledTimes(1));
     const [passedOrder, customer] = mockShareOrderInvoice.mock.calls[0] as unknown as [
       { id: string },
