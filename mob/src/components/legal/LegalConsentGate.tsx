@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Modal, ScrollView, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
@@ -116,6 +116,30 @@ export const LegalConsentGate: React.FC = () => {
     : privacyPending
       ? 'privacy'
       : null;
+
+  /*
+    Accord donné avant la connexion (ou l'inscription) : on le reporte sur le
+    profil, comme le site, sans rien redemander au client.
+  */
+  const syncedVersion = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ready || !email || !policy || privacyPending) return;
+    const target = String(policy.version ?? '');
+    const profileVersion = user?.privacy_policy_accepted_version;
+    if (profileVersion != null && String(profileVersion) === target) return;
+    if (syncedVersion.current === `${email}:${target}`) return;
+    syncedVersion.current = `${email}:${target}`;
+    const local = readAcceptance<PrivacyAcceptance>(PRIVACY_ACCEPTANCE_KEY, email);
+    void getBase44()
+      .auth.updateMe({
+        privacy_policy_accepted_version: policy.version,
+        privacy_policy_accepted_at: local?.acceptedAt ?? new Date().toISOString(),
+      } as Record<string, unknown>)
+      .then(() => refreshUser())
+      .catch(() => {
+        syncedVersion.current = null;
+      });
+  }, [ready, email, policy, privacyPending, user?.privacy_policy_accepted_version, refreshUser]);
 
   // Nouvelle étape → case décochée.
   useEffect(() => {
