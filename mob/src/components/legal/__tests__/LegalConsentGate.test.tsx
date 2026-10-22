@@ -71,10 +71,11 @@ describe('LegalConsentGate', () => {
 
     await acceptCurrentStep();
     await waitFor(() => expect(screen.queryByTestId('legal-gate-privacy')).toBeNull());
-    expect(kv.get('legal_regulations_accepted:guest')).toEqual(
+    // Accord rangé pour l'appareil, pas pour un compte.
+    expect(kv.get('legal_regulations_accepted')).toEqual(
       expect.objectContaining({ regulationId: 'reg_2', regulationVersion: 2 }),
     );
-    expect(kv.get('legal_privacy_accepted:guest')).toEqual(expect.objectContaining({ version: '1.0' }));
+    expect(kv.get('legal_privacy_accepted')).toEqual(expect.objectContaining({ version: '1.0' }));
     // Invité : rien n'est écrit sur un profil.
     expect(mockUpdateMe).not.toHaveBeenCalled();
   });
