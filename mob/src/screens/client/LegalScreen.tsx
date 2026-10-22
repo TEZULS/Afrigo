@@ -14,7 +14,6 @@ import { LegalContent } from '@/components/legal/LegalContent';
 import { InternalRegulations, PrivacyPolicy } from '@/api/entities';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette } from '@/theme/tokens';
-import { formatDate } from '@/utils/format';
 import {
   displayablePrivacyPolicy,
   displayableRegulations,
@@ -27,8 +26,7 @@ type Tab = 'regulations' | 'privacy';
 
 /**
  * « Paramètres › Règlement et confidentialité » : règlement intérieur et politique de
- * confidentialité, consultables à tout moment (textes de base44, version et
- * date d'entrée en vigueur).
+ * confidentialité, consultables à tout moment (textes de base44, affichés tels quels).
  */
 export const LegalScreen: React.FC = () => {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -98,22 +96,8 @@ export const LegalScreen: React.FC = () => {
           description="Ce texte n’a pas encore été publié. Réessayez plus tard."
         />
       ) : (
+        // Le texte seul : son propre titre ouvre déjà le document.
         <Card padding={16} style={{ marginTop: 12 }} testID={`legal-doc-${tab}`}>
-          <Text style={[styles.docTitle, { color: colors.foreground }]}>
-            {tab === 'regulations'
-              ? ((doc as RegulationsDoc).title?.trim() || 'Règlement intérieur')
-              : 'Politique de confidentialité'}
-          </Text>
-          <Text style={[styles.docMeta, { color: colors.mutedForeground }]}>
-            {doc.version != null ? `Version ${String(doc.version)}` : ''}
-            {tab === 'regulations' && (doc as RegulationsDoc).effective_date
-              ? ` · en vigueur le ${formatDate((doc as RegulationsDoc).effective_date!)}`
-              : doc.updated_date
-                ? ` · mise à jour le ${formatDate(doc.updated_date)}`
-                : ''}
-            {doc.is_active === false ? ' · dernière version publiée' : ''}
-          </Text>
-          <View style={[styles.rule, { backgroundColor: colors.border }]} />
           <LegalContent content={doc.content} />
         </Card>
       )}
@@ -132,7 +116,4 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 999,
   },
-  docTitle: { fontSize: 18, fontWeight: '800' },
-  docMeta: { fontSize: 12, marginTop: 4 },
-  rule: { height: StyleSheet.hairlineWidth, marginVertical: 12 },
 });

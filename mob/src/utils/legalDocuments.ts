@@ -77,13 +77,21 @@ export const displayableRegulations = (docs: RegulationsDoc[]): RegulationsDoc |
 export const displayablePrivacyPolicy = (docs: PrivacyPolicyDoc[]): PrivacyPolicyDoc | null =>
   activePrivacyPolicy(docs) ?? [...docs].sort(newest)[0] ?? null;
 
-/** Clé de stockage local par compte (`guest` hors connexion), comme le site. */
-export const legalSubject = (email?: string | null): string => (email?.trim() || 'guest').toLowerCase();
+/**
+ * Accord donné **une seule fois par appareil**, avant toute connexion ou
+ * inscription (demande du 2026-09-28) : se connecter ou créer son compte
+ * ensuite ne le redemande pas. Seule une nouvelle version le redemande.
+ */
+export const REGULATIONS_ACCEPTANCE_KEY = 'legal_regulations_accepted';
+export const PRIVACY_ACCEPTANCE_KEY = 'legal_privacy_accepted';
 
-export const regulationsAcceptanceKey = (email?: string | null) =>
-  `legal_regulations_accepted:${legalSubject(email)}`;
-export const privacyAcceptanceKey = (email?: string | null) =>
-  `legal_privacy_accepted:${legalSubject(email)}`;
+/**
+ * Anciennes clés, par compte (`guest` hors connexion, sinon l'e-mail) : encore
+ * lues pour ne pas redemander un accord déjà donné avec une version précédente
+ * de l'app.
+ */
+export const legacyAcceptanceKeys = (base: string, email?: string | null): string[] =>
+  ['guest', email?.trim().toLowerCase()].filter(Boolean).map((who) => `${base}:${who}`);
 
 export const regulationsAccepted = (
   doc: RegulationsDoc | null,
@@ -127,6 +135,20 @@ export interface LegalSpan {
   bold: boolean;
 }
 
+/** Ligne de date de mise à jour en tête des textes : masquée à l'affichage (demande du 2026-09-28). */
+const UPDATED_ON_LINE = /^derni[èe]re\s+mise\s+à\s+jour\b/i;
+
+/**
+ * Titre écrit en capitales dans un texte brut (« POLITIQUE DE
+ * CONFIDENTIALITÉ », « 1. COLLECTE DES DONNÉES ») : aucune minuscule, au
+ * moins trois lettres, ligne courte. Sans expression régulière Unicode.
+ */
+const isUppercaseHeading = (line: string): boolean => {
+  if (line.length > 90 || line !== line.toUpperCase()) return false;
+  const letters = [...line].filter((ch) => ch.toLowerCase() !== ch.toUpperCase()).length;
+  return letters >= 3;
+};
+
 const decodeEntities = (s: string): string =>
   s
     .replace(/&nbsp;/g, ' ')
@@ -166,6 +188,7 @@ export const parseLegalContent = (raw: string | null | undefined): LegalBlock[] 
       flush();
       continue;
     }
+    if (UPDATED_ON_LINE.test(line)) continue;
     const heading = /^(#{1,3})\s+(.*)$/.exec(line);
     if (heading) {
       flush();
@@ -185,6 +208,11 @@ export const parseLegalContent = (raw: string | null | undefined): LegalBlock[] 
     if (bullet) {
       flush();
       blocks.push({ type: 'bullet', text: bullet[1]!.trim() });
+      continue;
+    }
+    if (isUppercaseHeading(line)) {
+      flush();
+      blocks.push({ type: 'heading', level: /^\d/.test(line) ? 3 : 2, text: line });
       continue;
     }
     paragraph.push(line);

@@ -25,13 +25,15 @@ import { LegalScreen } from '../LegalScreen';
 
 const wrap = (ui: React.ReactElement) => <NavigationContainer>{ui}</NavigationContainer>;
 
-describe('LegalScreen (Paramètres › Contrat)', () => {
+describe('LegalScreen (Paramètres › Règlement et confidentialité)', () => {
   it('affiche le dernier règlement même s’il n’est plus actif, puis la politique', async () => {
     renderWithProviders(wrap(<LegalScreen />));
     await waitFor(() => expect(screen.getByTestId('legal-doc-regulations')).toBeTruthy());
-    expect(screen.getByText('Règlement intérieur AfriGo')).toBeTruthy();
+    // Le texte le plus récent (version 2), sans en-tête ajouté : ni titre, ni version, ni date.
     expect(screen.getByText('1. PRÉSENTATION')).toBeTruthy();
-    expect(screen.getByText(/Version 2/)).toBeTruthy();
+    expect(screen.queryByText('Règlement intérieur AfriGo')).toBeNull();
+    expect(screen.queryByText(/Version/)).toBeNull();
+    expect(screen.queryByText(/en vigueur/)).toBeNull();
 
     fireEvent.press(screen.getByTestId('legal-tab-privacy'));
     await waitFor(() => expect(screen.getByTestId('legal-doc-privacy')).toBeTruthy());

@@ -71,10 +71,11 @@ describe('LegalConsentGate', () => {
 
     await acceptCurrentStep();
     await waitFor(() => expect(screen.queryByTestId('legal-gate-privacy')).toBeNull());
-    expect(kv.get('legal_regulations_accepted:guest')).toEqual(
+    // Accord rangé pour l'appareil, pas pour un compte.
+    expect(kv.get('legal_regulations_accepted')).toEqual(
       expect.objectContaining({ regulationId: 'reg_2', regulationVersion: 2 }),
     );
-    expect(kv.get('legal_privacy_accepted:guest')).toEqual(expect.objectContaining({ version: '1.0' }));
+    expect(kv.get('legal_privacy_accepted')).toEqual(expect.objectContaining({ version: '1.0' }));
     // Invité : rien n'est écrit sur un profil.
     expect(mockUpdateMe).not.toHaveBeenCalled();
   });
@@ -129,5 +130,29 @@ describe('LegalConsentGate', () => {
     kv.set('legal_privacy_accepted:guest', { version: '1.0', acceptedAt: 'x' });
     renderWithProviders(<LegalConsentGate />);
     await waitFor(() => expect(screen.getByTestId('legal-gate-regulations')).toBeTruthy());
+  });
+});
+
+describe('LegalConsentGate — accord donné une seule fois, avant connexion ou inscription', () => {
+  it('accepté en invité : plus rien à la connexion, et l’accord est reporté sur le profil', async () => {
+    const guest = renderWithProviders(<LegalConsentGate />);
+    await waitFor(() => expect(screen.getByTestId('legal-gate-regulations')).toBeTruthy());
+    await acceptCurrentStep();
+    await waitFor(() => expect(screen.getByTestId('legal-gate-privacy')).toBeTruthy());
+    await acceptCurrentStep();
+    await waitFor(() => expect(screen.queryByTestId('legal-gate-privacy')).toBeNull());
+    guest.unmount();
+    expect(mockUpdateMe).not.toHaveBeenCalled();
+
+    // Le client finit son inscription / se connecte : profil sans version acceptée.
+    mockUser = { email: 'nouveau@x.fr', privacy_policy_accepted_version: null };
+    renderWithProviders(<LegalConsentGate />);
+    await waitFor(() =>
+      expect(mockUpdateMe).toHaveBeenCalledWith(
+        expect.objectContaining({ privacy_policy_accepted_version: '1.0' }),
+      ),
+    );
+    expect(screen.queryByTestId('legal-gate-regulations')).toBeNull();
+    expect(screen.queryByTestId('legal-gate-privacy')).toBeNull();
   });
 });
