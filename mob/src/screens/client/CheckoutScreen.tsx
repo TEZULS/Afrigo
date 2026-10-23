@@ -44,6 +44,12 @@ import { consumeOrderedLines } from '@/services/cartServerSync';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import type { AddressSuggestion } from '@/services/addressAutocomplete';
 import { DeliveryScheduleInfo } from '@/components/checkout/DeliveryScheduleInfo';
+import {
+  deliveryDiscountPercent,
+  discountDependsOnOrderNumber,
+  discountedDeliveryFee,
+  type ZoneDeliveryDiscount,
+} from '@/utils/deliveryDiscount';
 import { DeliverySlotSection, type SlotChoice } from '@/components/checkout/DeliverySlotSection';
 import type { ScheduleDay } from '@/utils/deliverySchedule';
 import { generateDeliveryCode } from '@/utils/deliveryCode';
@@ -79,6 +85,8 @@ interface ZoneRow {
   min_order_amount?: number;
   delivery_schedule?: ScheduleDay[];
   min_days_before_delivery?: number;
+  /** Réduction sur la livraison (%, période, rang de commande, niveau client). */
+  discount?: ZoneDeliveryDiscount;
 }
 
 
@@ -252,6 +260,14 @@ export const CheckoutScreen: React.FC = () => {
           delivery_schedule: (z.delivery_schedule as ScheduleDay[] | undefined) ?? [],
           min_days_before_delivery:
             z.min_days_before_delivery != null ? Number(z.min_days_before_delivery) : 0,
+          discount: {
+            delivery_discount_percentage: z.delivery_discount_percentage as number | null | undefined,
+            discount_valid_from: z.discount_valid_from as string | null | undefined,
+            discount_valid_until: z.discount_valid_until as string | null | undefined,
+            discount_for_order_numbers: z.discount_for_order_numbers as number[] | null | undefined,
+            discount_for_new_customers: z.discount_for_new_customers as boolean | null | undefined,
+            tier_discounts: z.tier_discounts as Record<string, number> | null | undefined,
+          },
         }));
     },
   });
@@ -330,8 +346,33 @@ export const CheckoutScreen: React.FC = () => {
   const FREE_THRESHOLD = freeTh != null ? Number(freeTh) : 0;
   const isFreeDelivery =
     Boolean(zone) && (FREE_THRESHOLD === 0 || subTotal >= FREE_THRESHOLD);
-  const deliveryFee =
+  const baseDeliveryFee =
     zone != null ? (isFreeDelivery ? 0 : Number(zone.delivery_fee ?? 0)) : 0;
+
+  /**
+   * Commandes passées du client : le rang de celle-ci (1re, 2e…) conditionne
+   * la réduction de livraison « nouveaux clients » / « commandes n° … ».
+   */
+  const userOrdersQuery = useQuery<{ status?: string }[]>({
+    queryKey: ['userOrders', user?.email],
+    enabled: Boolean(user?.email),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    queryFn: async () =>
+      ((await Order().filter?.({ customer_email: user!.email })) ?? []) as { status?: string }[],
+  });
+  const orderNumber = (userOrdersQuery.data ?? []).filter((o) => o.status !== 'cancelled').length + 1;
+  /** Réduction de livraison de la zone (règles du site) ; 0 tant que le rang de commande est inconnu. */
+  const deliveryDiscountPct =
+    baseDeliveryFee > 0 &&
+    (!discountDependsOnOrderNumber(zone?.discount) || userOrdersQuery.isSuccess)
+      ? deliveryDiscountPercent(zone?.discount, {
+          orderNumber,
+          tier: (user?.['customer_tier'] as string | undefined) ?? 'normal',
+          today: toYmd(new Date()),
+        })
+      : 0;
+  const deliveryFee = discountedDeliveryFee(baseDeliveryFee, deliveryDiscountPct);
 
   const totals = computeCheckoutTotals({
     subTotal,
@@ -751,7 +792,11 @@ export const CheckoutScreen: React.FC = () => {
                 {zone.name}
               </Text>
               <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 2 }}>
-                {isFreeDelivery ? 'Livraison gratuite' : `Livraison : ${formatPrice(deliveryFee)}`}
+                {isFreeDelivery || deliveryFee === 0
+                  ? 'Livraison gratuite'
+                  : `Livraison : ${formatPrice(deliveryFee)}${
+                      deliveryDiscountPct > 0 ? ` (-${deliveryDiscountPct} %)` : ''
+                    }`}
               </Text>
             </View>
           </View>
@@ -1061,8 +1106,11 @@ export const CheckoutScreen: React.FC = () => {
         </View>
         <View style={styles.totalRow}>
           <Text style={{ color: colors.mutedForeground }}>Livraison</Text>
-          <Text style={{ color: colors.foreground }}>
-            {zone ? (isFreeDelivery ? 'Gratuit' : formatPrice(deliveryFee)) : '—'}
+          <Text style={{ color: colors.foreground }} testID="checkout-delivery-fee">
+            {deliveryDiscountPct > 0 ? (
+              <Text style={styles.strikePrice}>{formatPrice(baseDeliveryFee)} </Text>
+            ) : null}
+            {zone ? (isFreeDelivery || deliveryFee === 0 ? 'Gratuit' : formatPrice(deliveryFee)) : '—'}
           </Text>
         </View>
         {appliedPromo ? (
@@ -1154,6 +1202,8 @@ const styles = StyleSheet.create({
   noZone: { marginTop: 12, fontSize: 13, lineHeight: 18, fontWeight: '700', color: palette.red[700] },
   /** Solde du portefeuille : même violet que la carte du profil. */
   walletAmount: { color: palette.purple[600], fontWeight: '700' },
+  /** Frais de livraison avant réduction. */
+  strikePrice: { textDecorationLine: 'line-through', color: palette.slate[400] },
   radio: {
     width: 20,
     height: 20,
