@@ -101,7 +101,7 @@ Valeurs extraites de `mob/app.json` et `mob/eas.json` au moment de la remise.
 | Apple Team ID                        | `L2XBYAZYUL`                                 |
 | ASC App ID (App Store Connect)       | `6771119661`                                 |
 | iOS deployment target                | `15.1`                                       |
-| Android minSdkVersion / target / compile | `24` / `35` / `35`                       |
+| Android minSdkVersion / target / compile | `24` / `36` / `36`                       |
 | Node version (build EAS)             | `20.18.0`                                    |
 
 ---
