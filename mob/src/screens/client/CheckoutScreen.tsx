@@ -4,7 +4,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { MapPin, CreditCard, Banknote, Tag, CheckCircle2, FileText } from 'lucide-react-native';
+import {
+  MapPin,
+  CreditCard,
+  Banknote,
+  Tag,
+  CheckCircle2,
+  FileText,
+  Edit2,
+  Save,
+} from 'lucide-react-native';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Button } from '@/components/ui/Button';
@@ -35,6 +44,12 @@ import { consumeOrderedLines } from '@/services/cartServerSync';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import type { AddressSuggestion } from '@/services/addressAutocomplete';
 import { DeliveryScheduleInfo } from '@/components/checkout/DeliveryScheduleInfo';
+import {
+  deliveryDiscountPercent,
+  discountDependsOnOrderNumber,
+  discountedDeliveryFee,
+  type ZoneDeliveryDiscount,
+} from '@/utils/deliveryDiscount';
 import { DeliverySlotSection, type SlotChoice } from '@/components/checkout/DeliverySlotSection';
 import type { ScheduleDay } from '@/utils/deliverySchedule';
 import { generateDeliveryCode } from '@/utils/deliveryCode';
@@ -70,6 +85,8 @@ interface ZoneRow {
   min_order_amount?: number;
   delivery_schedule?: ScheduleDay[];
   min_days_before_delivery?: number;
+  /** Réduction sur la livraison (%, période, rang de commande, niveau client). */
+  discount?: ZoneDeliveryDiscount;
 }
 
 
@@ -137,6 +154,27 @@ export const CheckoutScreen: React.FC = () => {
   const [postalCode, setPostalCode] = useState((user?.['postal_code'] as string) ?? '');
   const [city, setCity] = useState((user?.['city'] as string) ?? '');
   const [phone, setPhone] = useState((user?.['phone'] as string) ?? '');
+  /**
+   * Coordonnées repliées en un résumé (téléphone, adresse) avec « Modifier »,
+   * comme le profil (demande du 2026-10-27) : « Modifier » déplie tous les
+   * champs, « Enregistrer » les replie. Dépliées d'office si l'adresse du
+   * profil est incomplète.
+   */
+  const [editingAddress, setEditingAddress] = useState(
+    () =>
+      !(
+        String(user?.['address'] ?? '').trim() &&
+        String(user?.['postal_code'] ?? '').trim() &&
+        String(user?.['city'] ?? '').trim()
+      ),
+  );
+  /** Coordonnées d'avant « Modifier », rétablies par « Annuler ». */
+  const [addressBackup, setAddressBackup] = useState<{
+    address: string;
+    postalCode: string;
+    city: string;
+    phone: string;
+  } | null>(null);
   /** Instructions de livraison (code d'entrée, étage…) → `Order.notes`, comme le web. */
   const [instructions, setInstructions] = useState('');
   /** Créneau de livraison retenu (toujours le jour même). */
@@ -154,6 +192,31 @@ export const CheckoutScreen: React.FC = () => {
     if (s.postalCode) setPostalCode(s.postalCode);
     if (s.city) setCity(s.city);
   }, []);
+
+  /** Adresse, code postal (5 chiffres) et ville : de quoi livrer et trouver la zone. */
+  const addressComplete = Boolean(address.trim() && /^\d{5}$/.test(postalCode.trim()) && city.trim());
+  const startAddressEdit = () => {
+    setAddressBackup({ address, postalCode, city, phone });
+    setEditingAddress(true);
+  };
+  const saveAddress = () => {
+    if (!addressComplete) return;
+    setAddress((v) => v.trim());
+    setPostalCode((v) => v.trim());
+    setCity((v) => v.trim());
+    setPhone((v) => v.trim());
+    setAddressBackup(null);
+    setEditingAddress(false);
+  };
+  const cancelAddressEdit = () => {
+    if (!addressBackup) return;
+    setAddress(addressBackup.address);
+    setPostalCode(addressBackup.postalCode);
+    setCity(addressBackup.city);
+    setPhone(addressBackup.phone);
+    setAddressBackup(null);
+    setEditingAddress(false);
+  };
 
   const [promoInput, setPromoInput] = useState('');
   const [promoError, setPromoError] = useState<string | null>(null);
@@ -197,6 +260,14 @@ export const CheckoutScreen: React.FC = () => {
           delivery_schedule: (z.delivery_schedule as ScheduleDay[] | undefined) ?? [],
           min_days_before_delivery:
             z.min_days_before_delivery != null ? Number(z.min_days_before_delivery) : 0,
+          discount: {
+            delivery_discount_percentage: z.delivery_discount_percentage as number | null | undefined,
+            discount_valid_from: z.discount_valid_from as string | null | undefined,
+            discount_valid_until: z.discount_valid_until as string | null | undefined,
+            discount_for_order_numbers: z.discount_for_order_numbers as number[] | null | undefined,
+            discount_for_new_customers: z.discount_for_new_customers as boolean | null | undefined,
+            tier_discounts: z.tier_discounts as Record<string, number> | null | undefined,
+          },
         }));
     },
   });
@@ -275,8 +346,33 @@ export const CheckoutScreen: React.FC = () => {
   const FREE_THRESHOLD = freeTh != null ? Number(freeTh) : 0;
   const isFreeDelivery =
     Boolean(zone) && (FREE_THRESHOLD === 0 || subTotal >= FREE_THRESHOLD);
-  const deliveryFee =
+  const baseDeliveryFee =
     zone != null ? (isFreeDelivery ? 0 : Number(zone.delivery_fee ?? 0)) : 0;
+
+  /**
+   * Commandes passées du client : le rang de celle-ci (1re, 2e…) conditionne
+   * la réduction de livraison « nouveaux clients » / « commandes n° … ».
+   */
+  const userOrdersQuery = useQuery<{ status?: string }[]>({
+    queryKey: ['userOrders', user?.email],
+    enabled: Boolean(user?.email),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    queryFn: async () =>
+      ((await Order().filter?.({ customer_email: user!.email })) ?? []) as { status?: string }[],
+  });
+  const orderNumber = (userOrdersQuery.data ?? []).filter((o) => o.status !== 'cancelled').length + 1;
+  /** Réduction de livraison de la zone (règles du site) ; 0 tant que le rang de commande est inconnu. */
+  const deliveryDiscountPct =
+    baseDeliveryFee > 0 &&
+    (!discountDependsOnOrderNumber(zone?.discount) || userOrdersQuery.isSuccess)
+      ? deliveryDiscountPercent(zone?.discount, {
+          orderNumber,
+          tier: (user?.['customer_tier'] as string | undefined) ?? 'normal',
+          today: toYmd(new Date()),
+        })
+      : 0;
+  const deliveryFee = discountedDeliveryFee(baseDeliveryFee, deliveryDiscountPct);
 
   const totals = computeCheckoutTotals({
     subTotal,
@@ -555,36 +651,89 @@ export const CheckoutScreen: React.FC = () => {
       // En-tête hors du scroll : « AfriGo · Validation » reste toujours visible.
       header={<Header onBack={nav.goBack} title="Validation" />}
     >
-      <Text style={[styles.section, { color: colors.foreground }]}>Adresse de livraison</Text>
+      <Text style={[styles.section, { color: colors.foreground }]}>Coordonnées de livraison</Text>
       <Card padding={14} style={{ marginTop: 8 }}>
-        <AddressAutocomplete
-          value={address}
-          onChangeText={setAddress}
-          onSelectSuggestion={applyAddressSuggestion}
-          postalCode={postalCode}
-          placeholder="Rue…"
-        />
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Input
-            label="Code postal"
-            value={postalCode}
-            onChangeText={setPostalCode}
-            keyboardType="numeric"
-            containerStyle={{ flex: 1 }}
-          />
-          <Input
-            label="Ville"
-            value={city}
-            onChangeText={setCity}
-            containerStyle={{ flex: 1.2 }}
-          />
-        </View>
-        <Input
-          label="Téléphone"
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-        />
+        {editingAddress ? (
+          <View testID="checkout-address-form">
+            <AddressAutocomplete
+              value={address}
+              onChangeText={setAddress}
+              onSelectSuggestion={applyAddressSuggestion}
+              postalCode={postalCode}
+              placeholder="Rue…"
+            />
+            {/*
+              Une case par ligne : partagée avec le code postal, la case Ville
+              coupait les noms longs (« Châlons-en-Champagne ») sur Android.
+            */}
+            <Input
+              label="Code postal"
+              value={postalCode}
+              onChangeText={setPostalCode}
+              keyboardType="numeric"
+              maxLength={5}
+              testID="checkout-postal-code"
+            />
+            <Input label="Ville" value={city} onChangeText={setCity} testID="checkout-city" />
+            <Input
+              label="Téléphone"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              testID="checkout-phone"
+            />
+            <View style={styles.editActions}>
+              <Button
+                title="Enregistrer"
+                variant="primary"
+                size="md"
+                disabled={!addressComplete}
+                leftIcon={<Save size={14} color="#FFF" />}
+                onPress={saveAddress}
+                testID="checkout-address-save"
+                style={{ flex: 1 }}
+              />
+              {addressBackup ? (
+                <Button
+                  title="Annuler"
+                  variant="outline"
+                  size="md"
+                  onPress={cancelAddressEdit}
+                  testID="checkout-address-cancel"
+                />
+              ) : null}
+            </View>
+            {!addressComplete ? (
+              <Text style={[styles.editHint, { color: colors.mutedForeground }]}>
+                Renseignez l&apos;adresse, le code postal (5 chiffres) et la ville.
+              </Text>
+            ) : null}
+          </View>
+        ) : (
+          // Le téléphone n'est plus résumé ici (demande du 2026-10-27) : il
+          // reste modifiable dans le formulaire ouvert par « Modifier ».
+          <>
+            <View style={styles.fieldHeader}>
+              <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Adresse de livraison *</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Modifier l’adresse de livraison"
+                onPress={startAddressEdit}
+                style={styles.editBtn}
+                testID="checkout-edit-address"
+              >
+                <Edit2 size={14} color={palette.emerald[600]} />
+                <Text style={[styles.editTxt, { color: palette.emerald[600] }]}>Modifier</Text>
+              </Pressable>
+            </View>
+            <View style={[styles.addressBox, { backgroundColor: colors.muted }]} testID="checkout-address-summary">
+              <Text style={{ color: colors.foreground, fontWeight: '700', fontSize: 15 }}>{address.trim()}</Text>
+              <Text style={{ color: colors.mutedForeground, marginTop: 2 }}>
+                {`${postalCode.trim()} ${city.trim()}`.trim()}
+              </Text>
+            </View>
+          </>
+        )}
       </Card>
 
       {/* Instructions pour le livreur — entre l'adresse et la zone, comme demandé. */}
@@ -643,20 +792,18 @@ export const CheckoutScreen: React.FC = () => {
                 {zone.name}
               </Text>
               <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 2 }}>
-                {isFreeDelivery ? 'Livraison gratuite' : `Livraison : ${formatPrice(deliveryFee)}`}
+                {isFreeDelivery || deliveryFee === 0
+                  ? 'Livraison gratuite'
+                  : `Livraison : ${formatPrice(deliveryFee)}${
+                      deliveryDiscountPct > 0 ? ` (-${deliveryDiscountPct} %)` : ''
+                    }`}
               </Text>
             </View>
           </View>
         </Card>
       ) : postalCode.trim() ? (
-        <Text
-          style={{
-            marginTop: 12,
-            fontSize: 12,
-            color: colors.mutedForeground,
-            fontWeight: '500',
-          }}
-        >
+        // Client hors zone de livraison : message bien visible, en rouge foncé.
+        <Text style={styles.noZone} testID="checkout-no-zone">
           Aucune zone trouvée pour le code postal {postalCode.trim()}.
         </Text>
       ) : null}
@@ -781,7 +928,8 @@ export const CheckoutScreen: React.FC = () => {
                   Utiliser mon portefeuille
                 </Text>
                 <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 2 }}>
-                  Solde disponible : {formatPrice(walletBalance)}
+                  Solde disponible :{' '}
+                  <Text style={styles.walletAmount}>{formatPrice(walletBalance)}</Text>
                 </Text>
               </View>
               {useWallet ? (
@@ -958,8 +1106,11 @@ export const CheckoutScreen: React.FC = () => {
         </View>
         <View style={styles.totalRow}>
           <Text style={{ color: colors.mutedForeground }}>Livraison</Text>
-          <Text style={{ color: colors.foreground }}>
-            {zone ? (isFreeDelivery ? 'Gratuit' : formatPrice(deliveryFee)) : '—'}
+          <Text style={{ color: colors.foreground }} testID="checkout-delivery-fee">
+            {deliveryDiscountPct > 0 ? (
+              <Text style={styles.strikePrice}>{formatPrice(baseDeliveryFee)} </Text>
+            ) : null}
+            {zone ? (isFreeDelivery || deliveryFee === 0 ? 'Gratuit' : formatPrice(deliveryFee)) : '—'}
           </Text>
         </View>
         {appliedPromo ? (
@@ -1039,6 +1190,20 @@ const styles = StyleSheet.create({
   },
   /** Moyen de paiement interdit à ce client : visible mais éteint (comme le web). */
   rowBlocked: { opacity: 0.6 },
+  /** Résumé des coordonnées : mêmes libellés et « Modifier » que le profil. */
+  fieldHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  fieldLabel: { fontSize: 13, fontWeight: '700', marginBottom: 6 },
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
+  editTxt: { fontSize: 13, fontWeight: '700' },
+  addressBox: { paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12 },
+  editActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  editHint: { fontSize: 12, marginTop: 8 },
+  /** Code postal hors de toute zone de livraison. */
+  noZone: { marginTop: 12, fontSize: 13, lineHeight: 18, fontWeight: '700', color: palette.red[700] },
+  /** Solde du portefeuille : même violet que la carte du profil. */
+  walletAmount: { color: palette.purple[600], fontWeight: '700' },
+  /** Frais de livraison avant réduction. */
+  strikePrice: { textDecorationLine: 'line-through', color: palette.slate[400] },
   radio: {
     width: 20,
     height: 20,
