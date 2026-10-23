@@ -101,7 +101,7 @@ Valeurs extraites de `mob/app.json` et `mob/eas.json` au moment de la remise.
 | Apple Team ID                        | `L2XBYAZYUL`                                 |
 | ASC App ID (App Store Connect)       | `6771119661`                                 |
 | iOS deployment target                | `15.1`                                       |
-| Android minSdkVersion / target / compile | `24` / `35` / `35`                       |
+| Android minSdkVersion / target / compile | `24` / `36` / `36`                       |
 | Node version (build EAS)             | `20.18.0`                                    |
 
 ---
@@ -540,7 +540,7 @@ npm run prebuild
 - **Ne PAS toucher `mob/.npmrc`** : `legacy-peer-deps=true` est nécessaire pour résoudre les peer deps de SDK 55 (React 19, Reanimated 4, etc.).
 - **New Architecture (Fabric / TurboModules)** activée par défaut depuis Expo SDK 55. Toute nouvelle lib native doit être compatible.
 - **Reanimated 4** nécessite `react-native-worklets@0.7.4` (déjà installé). Toute mise à jour de Reanimated doit être faite en tandem.
-- **Apple submission** : Apple exige depuis 2025 que les apps soient soumises avec Xcode 26+ et le SDK iOS 26+. Le profil `production` dans `eas.json` utilise `"image": "latest"` pour rester à jour. Vérifier régulièrement après une mise à jour de Apple.
+- **Apple submission** : Apple exige depuis 2025 que les apps soient soumises avec Xcode 26+ et le SDK iOS 26+. Les profils `production` et `preview` d'`eas.json` utilisent `"image": "sdk-55"` (Xcode 26.2, image prévue pour Expo SDK 55). **Ne pas revenir à `"latest"`** : depuis octobre 2026 il pointe sur Xcode 27.1 RC (prévu pour SDK 58), et la 1.0.39 y a échoué (« IPHONEOS_DEPLOYMENT_TARGET is set to 9.0… supported 15.0 to 27.1 » sur les cibles de ressources des Pods). Au passage à un SDK Expo plus récent, prendre l'alias `sdk-NN` correspondant. Le plugin `mob/plugins/withPodsMinDeploymentTarget.js` relève déjà toutes les cibles des Pods à iOS 15.1 pour ce jour-là.
 - **Windows / Android** : certains scripts npm (`android:winjdk`, `android:bundle:release`, `android:clean-native`) sont des wrappers Node (`scripts/*.cjs`) pour gérer le JDK et nettoyer les caches Gradle sous Windows.
 - **expo-updates / runtimeVersion** : la `runtimeVersion` est calée sur `appVersion`. Toute modification de modules natifs (ajout/suppression de lib avec code natif) **invalide les OTA** sur la version courante et impose un nouveau build store.
 - **Bundle ID partagé** : `app.afrigo.mobile` est utilisé à la fois pour iOS et Android. Le **Merchant ID Apple Pay** est `merchant.app.afrigo.mobile`.
@@ -561,6 +561,7 @@ npm run prebuild
 - **Clavier sur Android (bord à bord, API 35/36)** : `adjustResize` ne rétrécit plus la fenêtre, le clavier recouvrait les derniers champs (Ville à l'inscription). `Screen` applique donc un `KeyboardAvoidingView` en `padding` sur **les deux** plateformes ; un écran qui gère lui-même le clavier passe `keyboardBehavior="none"` et réserve `keyboardHeight` en bas de son ScrollView (inscription : `useKeyboardAwareFields`).
 - **Micro Android** : `android.permission.RECORD_AUDIO` doit rester dans `android.permissions` de `app.json` et **jamais** dans `blockedPermissions` (où il était jusqu'à la 1.0.27). Moteur de reconnaissance (`pickAndroidRecognizer` dans `useVoiceProductSearch.ts`) : celui du téléphone s'il s'agit déjà d'un moteur Google en ligne, sinon « Services vocaux de Google » (`com.google.android.tts`) ou l'app Google ; jamais `com.google.android.as` (reconnaissance hors ligne, qui s'arrête sans rien entendre si le pack français n'est pas téléchargé). Le dossier local `mob/android/` (non versionné, ancien) n'est pas utilisé par EAS : `npx expo prebuild --clean -p android` avant tout build Android local. Contrôle sans build : `npx expo config --type introspect`, dossier `android/` mis de côté.
 - **Icône de notification Android** : `mob/assets/images/notification-icon.png`, blanc sur transparent (Android ne garde que la silhouette, teintée `#F97316`), 384 px, traits épais lisibles à 24 dp, sans les traits de vitesse du logo. Avant le 2026-10-10 : image vide de 70 octets (icône blanche ou grise) ; jusqu'au 2026-10-20 : traits fins, à peine visibles dans la barre d'état.
+- **Catégorie Play Store** : réglée dans la Play Console (Présence sur le Store → Paramètres → Catégorie → « Alimentation et boissons »), pas dans le code.
 - **Modifs en cours non commitées** (au moment de la remise) :
   - `base44/functions/addLoyaltyPointsOnDelivery/entry.ts`
   - `base44/functions/removeLoyaltyPointsOnReturn/entry.ts`

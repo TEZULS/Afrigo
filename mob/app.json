@@ -93,7 +93,7 @@
           },
           "android": {
             "compileSdkVersion": 36,
-            "targetSdkVersion": 35,
+            "targetSdkVersion": 36,
             "minSdkVersion": 24
           }
         }
@@ -142,7 +142,8 @@
           "speechRecognitionPermission": "AfriGo transforme votre voix en texte pour rechercher un produit par son nom.",
           "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox", "com.google.android.tts"]
         }
-      ]
+      ],
+      "./plugins/withPodsMinDeploymentTarget"
     ],
     "extra": {
       "router": {},
@@ -150,7 +151,7 @@
         "projectId": "501b64d7-fd58-449d-8a1e-046a2d43e7d1"
       }
     },
-    "owner": "afrigo",
+    "owner": "tezuls",
     "runtimeVersion": {
       "policy": "appVersion"
     },

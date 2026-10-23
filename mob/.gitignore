@@ -14,3 +14,7 @@ secrets/
 # Signature Android release (si android/ est versionné)
 *.keystore
 **/android/keystore.properties
+
+# Clé de signature Android et certificat d'import téléchargés (EAS / Play Console)
+*.jks
+*.pem
