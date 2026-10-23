@@ -142,7 +142,8 @@
           "speechRecognitionPermission": "AfriGo transforme votre voix en texte pour rechercher un produit par son nom.",
           "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox", "com.google.android.tts"]
         }
-      ]
+      ],
+      "./plugins/withPodsMinDeploymentTarget"
     ],
     "extra": {
       "router": {},
