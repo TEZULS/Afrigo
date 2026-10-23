@@ -23,14 +23,14 @@
       "distribution": "internal",
       "channel": "preview",
       "android": { "buildType": "apk" },
-      "ios": { "simulator": false, "image": "latest" }
+      "ios": { "simulator": false, "image": "sdk-55" }
     },
     "production": {
       "extends": "base",
       "channel": "production",
       "autoIncrement": true,
       "android": { "buildType": "app-bundle" },
-      "ios": { "image": "latest" }
+      "ios": { "image": "sdk-55" }
     }
   },
   "submit": {
