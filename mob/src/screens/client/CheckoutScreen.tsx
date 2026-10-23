@@ -757,14 +757,8 @@ export const CheckoutScreen: React.FC = () => {
           </View>
         </Card>
       ) : postalCode.trim() ? (
-        <Text
-          style={{
-            marginTop: 12,
-            fontSize: 12,
-            color: colors.mutedForeground,
-            fontWeight: '500',
-          }}
-        >
+        // Client hors zone de livraison : message bien visible, en rouge foncé.
+        <Text style={styles.noZone} testID="checkout-no-zone">
           Aucune zone trouvée pour le code postal {postalCode.trim()}.
         </Text>
       ) : null}
@@ -1155,6 +1149,8 @@ const styles = StyleSheet.create({
   addressBox: { paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12 },
   editActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
   editHint: { fontSize: 12, marginTop: 8 },
+  /** Code postal hors de toute zone de livraison. */
+  noZone: { marginTop: 12, fontSize: 13, lineHeight: 18, fontWeight: '700', color: palette.red[700] },
   radio: {
     width: 20,
     height: 20,
