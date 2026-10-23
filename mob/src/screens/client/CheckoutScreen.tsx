@@ -883,7 +883,8 @@ export const CheckoutScreen: React.FC = () => {
                   Utiliser mon portefeuille
                 </Text>
                 <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 2 }}>
-                  Solde disponible : {formatPrice(walletBalance)}
+                  Solde disponible :{' '}
+                  <Text style={styles.walletAmount}>{formatPrice(walletBalance)}</Text>
                 </Text>
               </View>
               {useWallet ? (
@@ -1151,6 +1152,8 @@ const styles = StyleSheet.create({
   editHint: { fontSize: 12, marginTop: 8 },
   /** Code postal hors de toute zone de livraison. */
   noZone: { marginTop: 12, fontSize: 13, lineHeight: 18, fontWeight: '700', color: palette.red[700] },
+  /** Solde du portefeuille : même violet que la carte du profil. */
+  walletAmount: { color: palette.purple[600], fontWeight: '700' },
   radio: {
     width: 20,
     height: 20,
