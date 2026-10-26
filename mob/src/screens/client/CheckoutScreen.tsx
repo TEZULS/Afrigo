@@ -1245,7 +1245,9 @@ export const CheckoutScreen: React.FC = () => {
             ? 'Se connecter pour commander'
             : zoneDisabled
               ? 'Livraison indisponible dans votre zone'
-              : 'Confirmer ma commande'
+              : cardFormShown
+                ? `Payer ${formatPrice(grandTotal)}`
+                : 'Confirmer ma commande'
         }
         variant="brand"
         size="lg"
@@ -1253,6 +1255,7 @@ export const CheckoutScreen: React.FC = () => {
         loading={placeOrder.isPending}
         disabled={!user ? false : !canProceed}
         onPress={() => (user ? placeOrder.mutate() : nav.navigate('Login'))}
+        testID="checkout-confirm"
         // Zone coupée : bouton « orange grisé » pour signaler le blocage.
         style={
           zoneDisabled
@@ -1260,6 +1263,13 @@ export const CheckoutScreen: React.FC = () => {
             : { marginTop: 20 }
         }
       />
+      {user && waitingForCard ? (
+        <Text style={[styles.payHint, { color: colors.mutedForeground }]} testID="checkout-card-missing">
+          {savedCard == null || isCardExpired(savedCard)
+            ? 'Renseignez votre carte bancaire ci-dessus pour payer.'
+            : 'Renseignez votre carte bancaire ci-dessus, ou choisissez votre carte enregistrée.'}
+        </Text>
+      ) : null}
     </Screen>
   );
 };
@@ -1279,6 +1289,8 @@ const styles = StyleSheet.create({
   addressBox: { paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12 },
   editActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
   editHint: { fontSize: 12, marginTop: 8 },
+  /** Sous « Payer » : ce qui manque encore (la carte). */
+  payHint: { fontSize: 12, textAlign: 'center', marginTop: 8 },
   /** Code postal hors de toute zone de livraison. */
   noZone: { marginTop: 12, fontSize: 13, lineHeight: 18, fontWeight: '700', color: palette.red[700] },
   /** Solde du portefeuille : même violet que la carte du profil. */
