@@ -1,7 +1,9 @@
 import React from 'react';
+import { Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import { fireEvent, renderWithProviders, screen, waitFor } from '@/__tests__/test-utils';
+import { act, fireEvent, renderWithProviders, screen, waitFor } from '@/__tests__/test-utils';
 import { useCart } from '@/stores/cart';
+import type { CardPaymentOutcome } from '@/services/cardPayment';
 
 const mockReplace = jest.fn();
 const mockNavigate = jest.fn();
@@ -36,9 +38,11 @@ jest.mock('@/lib/AuthContext', () => ({
 }));
 
 let mockAppSettings: Record<string, unknown> = { delivery_slots_enabled: false };
+/** Réglages lus : sinon l'écran ne bloque pas encore la carte faute de clé Stripe. */
+let mockAppSettingsLoaded = false;
 jest.mock('@/hooks/useAppSettings', () => ({
   ...jest.requireActual('@/hooks/useAppSettings'),
-  useAppSettings: () => ({ data: mockAppSettings, isLoading: false }),
+  useAppSettings: () => ({ data: mockAppSettings, isLoading: false, isSuccess: mockAppSettingsLoaded }),
 }));
 
 jest.mock('@/api/base44Client', () => ({
@@ -56,9 +60,24 @@ jest.mock('@/lib/wallet', () => ({
   debitWalletForOrder: (...args: unknown[]) => mockDebitWallet(...(args as [])),
 }));
 
+/** Paiement par carte (création du paiement Stripe, confirmation…) : testé à part. */
+const mockPayOrderByCard = jest.fn(
+  async (_request: unknown): Promise<CardPaymentOutcome> => ({ status: 'paid', cardSaved: false }),
+);
+jest.mock('@/services/cardPayment', () => ({
+  payOrderByCard: (request: unknown) => mockPayOrderByCard(request),
+  isCardPaymentInProgress: () => false,
+}));
+jest.mock('@/services/stripeSetup', () => ({
+  ...jest.requireActual('@/services/stripeSetup'),
+  ensureStripeReady: jest.fn(async () => true),
+}));
+
 /** Zone couvrant le client — son état actif/inactif varie selon le test. */
 let mockZones: Record<string, unknown>[] = [];
 let mockSlots: Record<string, unknown>[] = [];
+/** Commandes passées du client (rang de la commande pour les réductions de livraison). */
+let mockUserOrders: { status?: string }[] = [];
 const mockSlotUpdate = jest.fn();
 const mockOrderCreate = jest.fn(async () => ({ id: 'ord_1' }));
 /** Places prises renvoyées par `getDeliverySlotCounts` (par heure de début). */
@@ -74,7 +93,7 @@ const mockInvoke = jest.fn(async (name: string, payload?: unknown) =>
 jest.mock('@/api/entities', () => ({
   DeliveryZone: () => ({ list: jest.fn(async () => mockZones) }),
   DeliverySlot: () => ({ list: jest.fn(async () => mockSlots), update: mockSlotUpdate }),
-  Order: () => ({ create: mockOrderCreate }),
+  Order: () => ({ create: mockOrderCreate, filter: jest.fn(async () => mockUserOrders) }),
   DiscountCode: () => ({ filter: jest.fn(async () => []), update: jest.fn() }),
   DiscountCodeUsage: () => ({ filter: jest.fn(async () => []), create: jest.fn() }),
   WalletTransaction: () => ({ create: jest.fn() }),
@@ -107,11 +126,31 @@ const wrap = (ui: React.ReactElement) => <NavigationContainer>{ui}</NavigationCo
 const lastCreatedOrder = () =>
   (mockOrderCreate.mock.calls[0] as unknown as [Record<string, unknown>])[0];
 
+/** Bouton principal : « Payer … » par carte, « Confirmer ma commande » sinon. */
+const confirmButton = () => screen.getByTestId('checkout-confirm');
+/** Le client remplit le formulaire de carte Stripe (vue simulée dans jest.setup.js). */
+const fillCard = () =>
+  act(() => {
+    screen.getByTestId('checkout-card-form').props.onFormComplete({
+      complete: true,
+      brand: 'Visa',
+      last4: '4242',
+      expiryMonth: 12,
+      expiryYear: 2030,
+      country: 'FR',
+    });
+  });
+/** Dernière demande de paiement par carte. */
+const lastCardPayment = () =>
+  (mockPayOrderByCard.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockUser = { ...baseUser };
   mockCheckoutParams = undefined;
+  mockAppSettingsLoaded = false;
   mockSlots = [];
+  mockUserOrders = [];
   mockSlotCounts = {};
   mockSlotCountsByDate = {};
   global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ features: [] }) });
