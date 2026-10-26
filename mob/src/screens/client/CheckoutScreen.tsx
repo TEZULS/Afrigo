@@ -66,6 +66,10 @@ import type { RootStackParamList } from '@/navigation/types';
 import { userErrorMessage } from '@/lib/userErrors';
 import { palette } from '@/theme/tokens';
 import { useCartVatRates } from '@/hooks/useCartVatRates';
+import { ensureStripeReady, pickStripePublishableKey } from '@/services/stripeSetup';
+import { payOrderByCard, type CardPaymentOutcome } from '@/services/cardPayment';
+import { CardPaymentPanel } from '@/components/checkout/CardPaymentPanel';
+import { cardholderNameOf, isCardExpired, savedCardOf } from '@/utils/savedCard';
 
 /** Message d'erreur interne : zone de livraison désactivée au moment de la commande. */
 const ZONE_UNAVAILABLE = 'zone_unavailable';
@@ -142,6 +146,17 @@ export const CheckoutScreen: React.FC = () => {
   useEffect(() => {
     if (cashOnDeliveryBlocked) setPayment('card');
   }, [cashOnDeliveryBlocked]);
+  /**
+   * Paiement par carte possible seulement si l'admin a saisi la clé publique
+   * Stripe (base44 → « Paiement ») : sinon la commande serait créée puis
+   * annulée à l'écran Paiement. Tant que les réglages ne sont pas lus, on ne
+   * bloque rien (l'écran Paiement revérifie).
+   */
+  const cardAvailable =
+    !appSettings.isSuccess || pickStripePublishableKey(appSettings.data?.stripe_publishable_key) != null;
+  useEffect(() => {
+    if (!cardAvailable && !cashOnDeliveryBlocked) setPayment('delivery');
+  }, [cardAvailable, cashOnDeliveryBlocked]);
   /*
     Le drapeau vient du profil : on le relit à l'ouverture du paiement pour
     qu'un blocage posé par l'admin s'applique sans redémarrer l'application.
@@ -182,6 +197,16 @@ export const CheckoutScreen: React.FC = () => {
   /** Incrémenté pour relire l'heure et la liste des créneaux (créneau expiré). */
   const [slotRefresh, setSlotRefresh] = useState(0);
   const [payment, setPayment] = useState<ApiPaymentMethod>('card');
+  /**
+   * Carte bancaire : formulaire Stripe dans la page (demande du 2026-10-27).
+   * La carte enregistrée du profil est proposée d'office ; « Utiliser une
+   * autre carte » affiche le formulaire, dont seul l'état « complet » remonte.
+   */
+  const savedCard = useMemo(() => savedCardOf(user), [user]);
+  const [preferSavedCard, setPreferSavedCard] = useState(true);
+  const payWithSavedCard = savedCard != null && !isCardExpired(savedCard) && preferSavedCard;
+  const [newCardComplete, setNewCardComplete] = useState(false);
+  const [saveNewCard, setSaveNewCard] = useState(false);
 
   /**
    * Suggestion d'adresse choisie : remplit rue + code postal + ville. Le code
@@ -384,6 +409,11 @@ export const CheckoutScreen: React.FC = () => {
   const { totalBeforeDiscounts, promoDiscount, maxWalletUsage, walletApplied, grandTotal } = totals;
   /** Commande intégralement réglée par le portefeuille : aucun autre paiement à choisir. */
   const paidByWalletOnly = useWallet && walletApplied > 0 && grandTotal === 0;
+  /** Carte choisie et payable : Stripe est prêt avant la première saisie. */
+  const cardFormShown = payment === 'card' && cardAvailable && !paidByWalletOnly;
+  useEffect(() => {
+    if (cardFormShown) void ensureStripeReady();
+  }, [cardFormShown]);
 
   const toggleWallet = () => {
     setUseWallet((on) => {
@@ -570,8 +600,8 @@ export const CheckoutScreen: React.FC = () => {
       }
 
       // Paiement carte : le portefeuille n'est débité qu'après confirmation
-      // Stripe (écran Paiement). Sinon un paiement refusé ou abandonné
-      // laissait le solde débité alors que la commande était annulée.
+      // Stripe (`services/cardPayment.ts`). Sinon un paiement refusé ou
+      // abandonné laissait le solde débité alors que la commande était annulée.
       if (walletApplied > 0 && apiPayment !== 'card') {
         await debitWalletForOrder({
           email: user.email,
@@ -593,16 +623,44 @@ export const CheckoutScreen: React.FC = () => {
         paymentMethod: paidByWalletOnly ? 'wallet' : apiPayment,
       }).catch(() => {});
 
-      return { ...created, apiPayment };
-    },
-    onSuccess: async (order) => {
-      if (order.apiPayment === 'card') {
-        nav.replace('Payment', {
-          orderId: order.id,
+      // Carte : débitée tout de suite, avec la carte saisie ou enregistrée.
+      let cardOutcome: CardPaymentOutcome | undefined;
+      if (apiPayment === 'card') {
+        cardOutcome = await payOrderByCard({
+          orderId: created.id,
           amount: grandTotal,
           walletAmount: walletApplied,
           lineKeys,
+          customer: { email: user.email, walletBalance, name: cardholderNameOf(user) },
+          card:
+            payWithSavedCard && savedCard
+              ? { kind: 'saved', paymentMethodId: savedCard.paymentMethodId }
+              : { kind: 'new', save: saveNewCard, replacesSavedCard: savedCard != null },
         });
+      }
+      return { ...created, apiPayment, cardOutcome };
+    },
+    onSuccess: async (order) => {
+      if (order.apiPayment === 'card') {
+        const outcome = order.cardOutcome;
+        if (outcome?.status === 'paid') {
+          void refreshUser();
+          toast.success(
+            'Paiement réussi',
+            outcome.cardSaved
+              ? 'Votre commande est confirmée et votre carte est enregistrée.'
+              : 'Votre commande est confirmée.',
+          );
+          nav.replace('OrderDetails', { id: order.id });
+        } else if (outcome?.status === 'canceled') {
+          // Validation de la banque fermée : la carte saisie reste, on peut réessayer.
+          toast.info('Paiement annulé', 'Aucun montant n’a été débité. Vous pouvez réessayer.');
+        } else {
+          toast.error(
+            outcome?.stage === 'init' ? 'Paiement indisponible' : 'Paiement échoué',
+            outcome?.message,
+          );
+        }
       } else {
         await consumeOrderedLines(user?.email, lineKeys);
         toast.success(
@@ -637,11 +695,20 @@ export const CheckoutScreen: React.FC = () => {
     },
   });
 
-  const canProceed =
+  /** Carte : la carte enregistrée, ou le formulaire entièrement rempli. */
+  const cardReady = payWithSavedCard || newCardComplete;
+  /** Moyen de paiement choisi réellement utilisable (carte sans Stripe, espèces interdites…). */
+  const paymentPossible =
+    paidByWalletOnly || (payment === 'card' ? cardAvailable && cardReady : !cashOnDeliveryBlocked);
+  /** Adresse, zone, minimum et créneau en règle : il ne reste que le paiement. */
+  const orderReady =
     Boolean(address.trim() && postalCode.trim() && city.trim() && zone) &&
     !zoneDisabled &&
     meetsMinimum &&
     !slotsBlocked;
+  const canProceed = orderReady && paymentPossible;
+  /** Seule la carte manque : on le dit sous le bouton. */
+  const waitingForCard = orderReady && cardFormShown && !cardReady;
 
   return (
     <Screen
@@ -1039,45 +1106,65 @@ export const CheckoutScreen: React.FC = () => {
               ] as const
             )
               .map((p) => {
-              const blocked = p.id === 'delivery' && cashOnDeliveryBlocked;
+              const blocked =
+                (p.id === 'delivery' && cashOnDeliveryBlocked) || (p.id === 'card' && !cardAvailable);
               const selected = payment === p.id && !blocked;
               const labelColor = blocked ? colors.mutedForeground : colors.foreground;
               return (
-                <Pressable
+                // Carte choisie : son formulaire se déplie dans le même cadre,
+                // les autres moyens de paiement passent en dessous.
+                <View
                   key={p.id}
-                  testID={`payment-${p.id}`}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected, disabled: blocked }}
-                  disabled={blocked}
-                  onPress={() => setPayment(p.id)}
                   style={[
-                    styles.row,
+                    styles.option,
                     blocked ? styles.rowBlocked : null,
                     { borderColor: selected ? colors.brandOrange : 'transparent' },
                   ]}
                 >
-                  <p.Icon size={18} color={selected ? colors.brandOrange : labelColor} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: labelColor, fontWeight: '600' }}>{p.label}</Text>
-                    <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>
-                      {blocked
-                        ? 'Non disponible pour votre compte — paiement par carte obligatoire'
-                        : p.hint}
-                    </Text>
-                  </View>
-                  {blocked ? null : (
-                    <View
-                      style={[
-                        styles.radio,
-                        { borderColor: selected ? colors.brandOrange : colors.border },
-                      ]}
-                    >
-                      {selected ? (
-                        <View style={[styles.radioDot, { backgroundColor: colors.brandOrange }]} />
-                      ) : null}
+                  <Pressable
+                    testID={`payment-${p.id}`}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected, disabled: blocked }}
+                    disabled={blocked || placeOrder.isPending}
+                    onPress={() => setPayment(p.id)}
+                    style={styles.row}
+                  >
+                    <p.Icon size={18} color={selected ? colors.brandOrange : labelColor} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: labelColor, fontWeight: '600' }}>{p.label}</Text>
+                      <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>
+                        {!blocked
+                          ? p.hint
+                          : p.id === 'card'
+                            ? 'Paiement par carte indisponible pour le moment'
+                            : 'Non disponible pour votre compte — paiement par carte obligatoire'}
+                      </Text>
                     </View>
-                  )}
-                </Pressable>
+                    {blocked ? null : (
+                      <View
+                        style={[
+                          styles.radio,
+                          { borderColor: selected ? colors.brandOrange : colors.border },
+                        ]}
+                      >
+                        {selected ? (
+                          <View style={[styles.radioDot, { backgroundColor: colors.brandOrange }]} />
+                        ) : null}
+                      </View>
+                    )}
+                  </Pressable>
+                  {p.id === 'card' && selected ? (
+                    <CardPaymentPanel
+                      savedCard={savedCard}
+                      useSavedCard={preferSavedCard}
+                      onUseSavedCardChange={setPreferSavedCard}
+                      saveNewCard={saveNewCard}
+                      onSaveNewCardChange={setSaveNewCard}
+                      onNewCardCompleteChange={setNewCardComplete}
+                      busy={placeOrder.isPending}
+                    />
+                  ) : null}
+                </View>
               );
             })}
           </Card>
@@ -1179,15 +1266,9 @@ export const CheckoutScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   section: { marginTop: 16, fontSize: 14, fontWeight: '700' },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    marginBottom: 6,
-  },
+  /** Cadre d'un moyen de paiement : en-tête, plus le formulaire de carte si elle est choisie. */
+  option: { borderRadius: 12, borderWidth: 1.5, marginBottom: 6 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12 },
   /** Moyen de paiement interdit à ce client : visible mais éteint (comme le web). */
   rowBlocked: { opacity: 0.6 },
   /** Résumé des coordonnées : mêmes libellés et « Modifier » que le profil. */
