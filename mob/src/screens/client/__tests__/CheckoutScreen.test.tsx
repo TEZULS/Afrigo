@@ -181,8 +181,8 @@ describe('CheckoutScreen — zone de livraison désactivée', () => {
 
     await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
     expect(screen.queryByText(/n'est pas disponible pour le moment/)).toBeNull();
-    const button = screen.getByRole('button', { name: 'Confirmer ma commande' });
-    expect(button.props.accessibilityState?.disabled ?? false).toBeFalsy();
+    fillCard();
+    expect(confirmButton().props.accessibilityState?.disabled ?? false).toBeFalsy();
   });
 });
 
@@ -196,7 +196,8 @@ describe('CheckoutScreen — instructions de livraison', () => {
       screen.getByPlaceholderText(/Code d'entrée, étage/),
       'Code 1234, 3e étage',
     );
-    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    fillCard();
+    fireEvent.press(confirmButton());
 
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
     expect(lastCreatedOrder().notes).toBe('Code 1234, 3e étage\nTel: 0600000000');
@@ -257,8 +258,10 @@ describe('CheckoutScreen — portefeuille', () => {
     // Il reste 4,49 € : les modes de paiement réapparaissent, carte sélectionnée par défaut.
     await waitFor(() => expect(screen.getByText('Carte bancaire')).toBeTruthy());
     expect(screen.getByText(/reste à payer : 4,49/)).toBeTruthy();
+    expect(confirmButton()).toHaveTextContent(/^Payer 4,49/);
 
-    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    fillCard();
+    fireEvent.press(confirmButton());
 
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
     const order = lastCreatedOrder();
@@ -267,15 +270,11 @@ describe('CheckoutScreen — portefeuille', () => {
     expect(order.wallet_amount_used).toBe(5);
     expect(order.amount_to_pay).toBe(4.49);
 
-    await waitFor(() =>
-      expect(mockReplace).toHaveBeenCalledWith('Payment', {
-        orderId: 'ord_1',
-        amount: 4.49,
-        walletAmount: 5,
-      }),
-    );
-    // Le portefeuille n'est débité qu'après acceptation du paiement carte.
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment()).toMatchObject({ orderId: 'ord_1', amount: 4.49, walletAmount: 5 });
+    // Le portefeuille n'est débité qu'après acceptation du paiement carte (dans `payOrderByCard`).
     expect(mockDebitWallet).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('OrderDetails', { id: 'ord_1' }));
   });
 
   it('borne la saisie au maximum utilisable', async () => {
@@ -313,7 +312,8 @@ describe('CheckoutScreen — sélection du panier', () => {
     expect(screen.getByText('6,00 €')).toBeTruthy();
     expect(screen.queryByText('Montant HT')).toBeNull();
 
-    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    fillCard();
+    fireEvent.press(confirmButton());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
     const order = lastCreatedOrder();
     const items = order.items as { product_id: string; quantity: number }[];
@@ -321,23 +321,22 @@ describe('CheckoutScreen — sélection du panier', () => {
     expect(items).toHaveLength(1);
     expect(order.total_amount).toBe(8.5);
 
-    // Paiement carte : la sélection est transmise à l'écran Paiement, qui ne
-    // retire du panier que ces lignes une fois la carte acceptée.
-    await waitFor(() =>
-      expect(mockReplace).toHaveBeenCalledWith('Payment', expect.objectContaining({ lineKeys: ['p2-'] })),
-    );
+    // Paiement carte : la sélection suit le paiement, qui ne retire du panier
+    // que ces lignes une fois la carte acceptée.
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment()).toMatchObject({ lineKeys: ['p2-'] });
     expect(mockConsumeOrderedLines).not.toHaveBeenCalled();
   });
 
   it('sans sélection transmise, tout le panier est commandé', async () => {
     renderWithProviders(wrap(<CheckoutScreen />));
     await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
-    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    fillCard();
+    fireEvent.press(confirmButton());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
     expect((lastCreatedOrder().items as unknown[]).length).toBe(2);
-    await waitFor(() =>
-      expect(mockReplace).toHaveBeenCalledWith('Payment', expect.objectContaining({ lineKeys: undefined })),
-    );
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment().lineKeys).toBeUndefined();
   });
 });
 
@@ -410,7 +409,8 @@ describe('CheckoutScreen — client privé de paiement à la livraison (base44)'
 
     // Un appui ne la sélectionne pas : la commande part en paiement par carte.
     fireEvent.press(screen.getByText('Paiement à la livraison'));
-    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    fillCard();
+    fireEvent.press(confirmButton());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
     expect(lastCreatedOrder().payment_method).toBe('card');
   });
