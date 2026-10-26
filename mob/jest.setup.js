@@ -262,6 +262,17 @@ jest.mock('@stripe/stripe-react-native', () => {
   const { View } = require('react-native');
   return {
     StripeProvider: ({ children }) => React.createElement(View, null, children),
+    initStripe: jest.fn(async () => {}),
+    /*
+      Formulaire de carte natif : une simple vue. Un test « remplit » la carte
+      en appelant `props.onFormComplete({ complete: true, … })` sur son testID.
+    */
+    CardForm: (props) => React.createElement(View, props),
+    confirmPayment: jest.fn(async () => ({
+      paymentIntent: { id: 'pi_test', status: 'Succeeded', paymentMethodId: 'pm_test' },
+    })),
+    createPaymentMethod: jest.fn(async () => ({ paymentMethod: { id: 'pm_test' } })),
+    handleURLCallback: jest.fn(async () => false),
     useStripe: () => ({
       initPaymentSheet: jest.fn(async () => ({ error: null })),
       presentPaymentSheet: jest.fn(async () => ({ error: null })),
