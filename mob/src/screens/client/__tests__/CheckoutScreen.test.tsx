@@ -1,7 +1,9 @@
 import React from 'react';
+import { Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import { fireEvent, renderWithProviders, screen, waitFor } from '@/__tests__/test-utils';
+import { act, fireEvent, renderWithProviders, screen, waitFor } from '@/__tests__/test-utils';
 import { useCart } from '@/stores/cart';
+import type { CardPaymentOutcome } from '@/services/cardPayment';
 
 const mockReplace = jest.fn();
 const mockNavigate = jest.fn();
@@ -36,9 +38,11 @@ jest.mock('@/lib/AuthContext', () => ({
 }));
 
 let mockAppSettings: Record<string, unknown> = { delivery_slots_enabled: false };
+/** Réglages lus : sinon l'écran ne bloque pas encore la carte faute de clé Stripe. */
+let mockAppSettingsLoaded = false;
 jest.mock('@/hooks/useAppSettings', () => ({
   ...jest.requireActual('@/hooks/useAppSettings'),
-  useAppSettings: () => ({ data: mockAppSettings, isLoading: false }),
+  useAppSettings: () => ({ data: mockAppSettings, isLoading: false, isSuccess: mockAppSettingsLoaded }),
 }));
 
 jest.mock('@/api/base44Client', () => ({
@@ -56,9 +60,24 @@ jest.mock('@/lib/wallet', () => ({
   debitWalletForOrder: (...args: unknown[]) => mockDebitWallet(...(args as [])),
 }));
 
+/** Paiement par carte (création du paiement Stripe, confirmation…) : testé à part. */
+const mockPayOrderByCard = jest.fn(
+  async (_request: unknown): Promise<CardPaymentOutcome> => ({ status: 'paid', cardSaved: false }),
+);
+jest.mock('@/services/cardPayment', () => ({
+  payOrderByCard: (request: unknown) => mockPayOrderByCard(request),
+  isCardPaymentInProgress: () => false,
+}));
+jest.mock('@/services/stripeSetup', () => ({
+  ...jest.requireActual('@/services/stripeSetup'),
+  ensureStripeReady: jest.fn(async () => true),
+}));
+
 /** Zone couvrant le client — son état actif/inactif varie selon le test. */
 let mockZones: Record<string, unknown>[] = [];
 let mockSlots: Record<string, unknown>[] = [];
+/** Commandes passées du client (rang de la commande pour les réductions de livraison). */
+let mockUserOrders: { status?: string }[] = [];
 const mockSlotUpdate = jest.fn();
 const mockOrderCreate = jest.fn(async () => ({ id: 'ord_1' }));
 /** Places prises renvoyées par `getDeliverySlotCounts` (par heure de début). */
@@ -74,7 +93,7 @@ const mockInvoke = jest.fn(async (name: string, payload?: unknown) =>
 jest.mock('@/api/entities', () => ({
   DeliveryZone: () => ({ list: jest.fn(async () => mockZones) }),
   DeliverySlot: () => ({ list: jest.fn(async () => mockSlots), update: mockSlotUpdate }),
-  Order: () => ({ create: mockOrderCreate }),
+  Order: () => ({ create: mockOrderCreate, filter: jest.fn(async () => mockUserOrders) }),
   DiscountCode: () => ({ filter: jest.fn(async () => []), update: jest.fn() }),
   DiscountCodeUsage: () => ({ filter: jest.fn(async () => []), create: jest.fn() }),
   WalletTransaction: () => ({ create: jest.fn() }),
@@ -107,11 +126,31 @@ const wrap = (ui: React.ReactElement) => <NavigationContainer>{ui}</NavigationCo
 const lastCreatedOrder = () =>
   (mockOrderCreate.mock.calls[0] as unknown as [Record<string, unknown>])[0];
 
+/** Bouton principal : « Payer … » par carte, « Confirmer ma commande » sinon. */
+const confirmButton = () => screen.getByTestId('checkout-confirm');
+/** Le client remplit le formulaire de carte Stripe (vue simulée dans jest.setup.js). */
+const fillCard = () =>
+  act(() => {
+    screen.getByTestId('checkout-card-form').props.onFormComplete({
+      complete: true,
+      brand: 'Visa',
+      last4: '4242',
+      expiryMonth: 12,
+      expiryYear: 2030,
+      country: 'FR',
+    });
+  });
+/** Dernière demande de paiement par carte. */
+const lastCardPayment = () =>
+  (mockPayOrderByCard.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockUser = { ...baseUser };
   mockCheckoutParams = undefined;
+  mockAppSettingsLoaded = false;
   mockSlots = [];
+  mockUserOrders = [];
   mockSlotCounts = {};
   mockSlotCountsByDate = {};
   global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ features: [] }) });
@@ -142,8 +181,8 @@ describe('CheckoutScreen — zone de livraison désactivée', () => {
 
     await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
     expect(screen.queryByText(/n'est pas disponible pour le moment/)).toBeNull();
-    const button = screen.getByRole('button', { name: 'Confirmer ma commande' });
-    expect(button.props.accessibilityState?.disabled ?? false).toBeFalsy();
+    fillCard();
+    expect(confirmButton().props.accessibilityState?.disabled ?? false).toBeFalsy();
   });
 });
 
@@ -157,7 +196,8 @@ describe('CheckoutScreen — instructions de livraison', () => {
       screen.getByPlaceholderText(/Code d'entrée, étage/),
       'Code 1234, 3e étage',
     );
-    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    fillCard();
+    fireEvent.press(confirmButton());
 
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
     expect(lastCreatedOrder().notes).toBe('Code 1234, 3e étage\nTel: 0600000000');
@@ -218,8 +258,10 @@ describe('CheckoutScreen — portefeuille', () => {
     // Il reste 4,49 € : les modes de paiement réapparaissent, carte sélectionnée par défaut.
     await waitFor(() => expect(screen.getByText('Carte bancaire')).toBeTruthy());
     expect(screen.getByText(/reste à payer : 4,49/)).toBeTruthy();
+    expect(confirmButton()).toHaveTextContent(/^Payer 4,49/);
 
-    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    fillCard();
+    fireEvent.press(confirmButton());
 
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
     const order = lastCreatedOrder();
@@ -228,15 +270,11 @@ describe('CheckoutScreen — portefeuille', () => {
     expect(order.wallet_amount_used).toBe(5);
     expect(order.amount_to_pay).toBe(4.49);
 
-    await waitFor(() =>
-      expect(mockReplace).toHaveBeenCalledWith('Payment', {
-        orderId: 'ord_1',
-        amount: 4.49,
-        walletAmount: 5,
-      }),
-    );
-    // Le portefeuille n'est débité qu'après acceptation du paiement carte.
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment()).toMatchObject({ orderId: 'ord_1', amount: 4.49, walletAmount: 5 });
+    // Le portefeuille n'est débité qu'après acceptation du paiement carte (dans `payOrderByCard`).
     expect(mockDebitWallet).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('OrderDetails', { id: 'ord_1' }));
   });
 
   it('borne la saisie au maximum utilisable', async () => {
@@ -274,7 +312,8 @@ describe('CheckoutScreen — sélection du panier', () => {
     expect(screen.getByText('6,00 €')).toBeTruthy();
     expect(screen.queryByText('Montant HT')).toBeNull();
 
-    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    fillCard();
+    fireEvent.press(confirmButton());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
     const order = lastCreatedOrder();
     const items = order.items as { product_id: string; quantity: number }[];
@@ -282,23 +321,22 @@ describe('CheckoutScreen — sélection du panier', () => {
     expect(items).toHaveLength(1);
     expect(order.total_amount).toBe(8.5);
 
-    // Paiement carte : la sélection est transmise à l'écran Paiement, qui ne
-    // retire du panier que ces lignes une fois la carte acceptée.
-    await waitFor(() =>
-      expect(mockReplace).toHaveBeenCalledWith('Payment', expect.objectContaining({ lineKeys: ['p2-'] })),
-    );
+    // Paiement carte : la sélection suit le paiement, qui ne retire du panier
+    // que ces lignes une fois la carte acceptée.
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment()).toMatchObject({ lineKeys: ['p2-'] });
     expect(mockConsumeOrderedLines).not.toHaveBeenCalled();
   });
 
   it('sans sélection transmise, tout le panier est commandé', async () => {
     renderWithProviders(wrap(<CheckoutScreen />));
     await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
-    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    fillCard();
+    fireEvent.press(confirmButton());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
     expect((lastCreatedOrder().items as unknown[]).length).toBe(2);
-    await waitFor(() =>
-      expect(mockReplace).toHaveBeenCalledWith('Payment', expect.objectContaining({ lineKeys: undefined })),
-    );
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment().lineKeys).toBeUndefined();
   });
 });
 
@@ -371,7 +409,8 @@ describe('CheckoutScreen — client privé de paiement à la livraison (base44)'
 
     // Un appui ne la sélectionne pas : la commande part en paiement par carte.
     fireEvent.press(screen.getByText('Paiement à la livraison'));
-    fireEvent.press(screen.getByRole('button', { name: 'Confirmer ma commande' }));
+    fillCard();
+    fireEvent.press(confirmButton());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
     expect(lastCreatedOrder().payment_method).toBe('card');
   });
@@ -406,7 +445,9 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
   };
   /** Mercredi 23 septembre 2026, 10 h. */
   const TEN_AM = new Date(2026, 8, 23, 10, 0);
-  const confirm = () => screen.getByRole('button', { name: 'Confirmer ma commande' });
+  const confirm = () => confirmButton();
+  /** Le paiement n'est pas le sujet ici : à la livraison, sans carte à saisir. */
+  const payOnDelivery = () => fireEvent.press(screen.getByTestId('payment-delivery'));
 
   beforeAll(() => {
     // Seule la date est figée : les minuteurs restent réels.
@@ -471,6 +512,7 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
     await waitFor(() =>
       expect(screen.getByTestId('slot-zone-3').props.accessibilityState?.selected).toBe(true),
     );
+    payOnDelivery();
     await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
     fireEvent.press(confirm());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
@@ -499,12 +541,13 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
       expect(screen.getByTestId('slot-day-label')).toHaveTextContent('Demain · Jeudi 24 Sept.'),
     );
     // Un jour futur : même le créneau du matin est proposé.
-    expect(screen.getByText('09h00 - 18h30')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('09h00 - 18h30')).toBeTruthy());
     expect(screen.queryByText('14h00 - 15h00')).toBeNull();
     await waitFor(() =>
       expect(screen.getByTestId('slot-zone-0').props.accessibilityState?.selected).toBe(true),
     );
 
+    payOnDelivery();
     await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
     fireEvent.press(confirm());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
@@ -520,7 +563,8 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
     await waitFor(() =>
       expect(screen.getByTestId('slot-day-label')).toHaveTextContent('Mercredi 30 Sept.'),
     );
-    expect(screen.getByText('09h00 - 10h00')).toBeTruthy();
+    // Les places du 30 se chargent après le changement de jour.
+    await waitFor(() => expect(screen.getByText('09h00 - 10h00')).toBeTruthy());
     expect(mockInvoke).toHaveBeenCalledWith('getDeliverySlotCounts', { date: '2026-09-30' });
   });
 
@@ -532,6 +576,7 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
     mockSlotCounts = { '09h00': 10 };
     renderWithProviders(wrap(<CheckoutScreen />));
     await waitFor(() => expect(screen.getByTestId('slots-none')).toBeTruthy());
+    payOnDelivery();
     expect(confirm().props.accessibilityState?.disabled).toBe(true);
   });
 
@@ -540,6 +585,7 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
     await waitFor(() =>
       expect(screen.getByTestId('slot-zone-2').props.accessibilityState?.selected).toBe(true),
     );
+    payOnDelivery();
     await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
 
     // Le client confirme à 11:00 : le créneau 11h00-12h00 vient de commencer.
@@ -566,11 +612,395 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
     expect(screen.queryByText('11:00 - 12:00')).toBeNull();
     expect(screen.queryByText('2/5')).toBeNull();
 
+    payOnDelivery();
     await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
     fireEvent.press(confirm());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
     expect(lastCreatedOrder().delivery_time).toBe('12:00');
     expect(lastCreatedOrder().delivery_time_slot).toBe('12:00-13:00');
     expect(mockSlotUpdate).toHaveBeenCalledWith('noon', { current_orders: 3 });
+  });
+});
+
+describe('CheckoutScreen — réduction sur la livraison (réglages de la zone)', () => {
+  const discountedZone = (discount: Record<string, unknown>) => ({ ...zone(true), ...discount });
+  const confirm = () => confirmButton();
+
+  it('100 % sur la livraison : « Gratuit », frais d’origine barrés, total sans livraison', async () => {
+    mockZones = [
+      discountedZone({ delivery_discount_percentage: 100, discount_for_order_numbers: [], discount_for_new_customers: false }),
+    ];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-delivery-fee')).toHaveTextContent('2,50 € Gratuit'));
+    expect(screen.getByText('Livraison gratuite')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Paiement à la livraison'));
+    await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
+    fireEvent.press(confirm());
+    await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
+    expect(lastCreatedOrder().total_amount).toBe(6.99);
+  });
+
+  it('50 % : frais divisés par deux', async () => {
+    mockZones = [discountedZone({ delivery_discount_percentage: 50 })];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-delivery-fee')).toHaveTextContent('2,50 € 1,25 €'));
+    expect(screen.getByText('Livraison : 1,25 € (-50 %)')).toBeTruthy();
+  });
+
+  it('réduction réservée à la 1re commande : rien pour un client qui a déjà commandé', async () => {
+    mockZones = [discountedZone({ delivery_discount_percentage: 100, discount_for_new_customers: true })];
+    mockUserOrders = [{ status: 'delivered' }];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-delivery-fee')).toHaveTextContent('2,50 €'));
+    expect(screen.getByTestId('checkout-delivery-fee')).not.toHaveTextContent('Gratuit');
+  });
+
+  it('réduction sur la 2e commande : une commande annulée ne compte pas', async () => {
+    mockZones = [discountedZone({ delivery_discount_percentage: 100, discount_for_order_numbers: [2] })];
+    mockUserOrders = [{ status: 'delivered' }, { status: 'cancelled' }];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-delivery-fee')).toHaveTextContent('2,50 € Gratuit'));
+  });
+
+  it('affiche le solde du portefeuille en violet', async () => {
+    mockZones = [zone(true)];
+    mockUser = { ...baseUser, wallet_balance: 42.9 };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('42,90 €')).toBeTruthy());
+    const style = [screen.getByText('42,90 €').props.style].flat(Infinity);
+    expect(Object.assign({}, ...style).color).toBe('#9333EA');
+  });
+});
+
+describe('CheckoutScreen — client hors zone de livraison', () => {
+  it('affiche « Aucune zone trouvée » en rouge foncé', async () => {
+    mockZones = [];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-no-zone')).toBeTruthy());
+    expect(screen.getByTestId('checkout-no-zone')).toHaveTextContent(
+      'Aucune zone trouvée pour le code postal 51000.',
+    );
+    const style = Object.assign({}, ...[screen.getByTestId('checkout-no-zone').props.style].flat());
+    expect(style.color).toBe('#B91C1C');
+  });
+});
+
+describe('CheckoutScreen — coordonnées repliées, « Modifier » puis « Enregistrer »', () => {
+  beforeEach(() => {
+    mockZones = [zone(true), { ...zone(true), id: 'z4', name: 'Zone 4', postal_codes: ['55000'] }];
+  });
+
+  it('adresse du profil : un seul résumé (l’adresse), sans champs de saisie ni bloc téléphone', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    expect(screen.getByTestId('checkout-address-summary')).toHaveTextContent(
+      '3 rue des Lilas51000 Châlons-en-Champagne',
+    );
+    expect(screen.queryByTestId('checkout-city')).toBeNull();
+    expect(screen.getByTestId('checkout-edit-address')).toHaveTextContent('Modifier');
+    // Le téléphone ne se voit (et ne se modifie) que dans le formulaire déplié.
+    expect(screen.queryByText('Téléphone')).toBeNull();
+    expect(screen.queryByText('0600000000')).toBeNull();
+    expect(screen.queryByTestId('checkout-edit-phone')).toBeNull();
+    fireEvent.press(screen.getByTestId('checkout-edit-address'));
+    expect(screen.getByTestId('checkout-phone').props.value).toBe('0600000000');
+  });
+
+  it('« Modifier » déplie toute la zone ; « Enregistrer » replie avec la nouvelle adresse, utilisée pour la commande', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('checkout-edit-address'));
+    expect(screen.getByTestId('checkout-city').props.value).toBe('Châlons-en-Champagne');
+    expect(screen.getByTestId('checkout-postal-code').props.value).toBe('51000');
+
+    fireEvent.changeText(screen.getByTestId('checkout-postal-code'), '55000');
+    fireEvent.changeText(screen.getByTestId('checkout-city'), 'Bar-le-Duc');
+    fireEvent.changeText(screen.getByTestId('checkout-phone'), '+33780616245');
+    await waitFor(() => expect(screen.getByText('Zone 4')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('checkout-address-save'));
+
+    expect(screen.queryByTestId('checkout-city')).toBeNull();
+    expect(screen.getByTestId('checkout-address-summary')).toHaveTextContent(/55000 Bar-le-Duc/);
+
+    fillCard();
+    fireEvent.press(confirmButton());
+    await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
+    expect(lastCreatedOrder()).toMatchObject({
+      delivery_address: '3 rue des Lilas',
+      delivery_postal_code: '55000',
+      delivery_city: 'Bar-le-Duc',
+    });
+    expect(lastCreatedOrder().notes).toBe('Tel: +33780616245');
+  });
+
+  it('« Annuler » rétablit les coordonnées d’avant', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('checkout-edit-address'));
+    fireEvent.changeText(screen.getByTestId('checkout-city'), 'Reims');
+    fireEvent.changeText(screen.getByTestId('checkout-phone'), '0700000000');
+    fireEvent.press(screen.getByTestId('checkout-address-cancel'));
+    expect(screen.getByTestId('checkout-address-summary')).toHaveTextContent(/3 rue des Lilas.*51000 Châlons-en-Champagne/);
+    fireEvent.press(screen.getByTestId('checkout-edit-address'));
+    expect(screen.getByTestId('checkout-phone').props.value).toBe('0600000000');
+  });
+
+  it('« Enregistrer » refusé tant que l’adresse est incomplète (code postal à 5 chiffres)', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('checkout-edit-address'));
+    fireEvent.changeText(screen.getByTestId('checkout-postal-code'), '510');
+    const save = screen.getByTestId('checkout-address-save');
+    expect(save.props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByText(/code postal \(5 chiffres\)/)).toBeTruthy();
+    fireEvent.press(save);
+    expect(screen.getByTestId('checkout-city')).toBeTruthy();
+  });
+
+  it('profil sans adresse : formulaire ouvert d’office, sans « Annuler »', async () => {
+    mockUser = { ...baseUser, address: '', postal_code: '', city: '' };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-address-form')).toBeTruthy());
+    expect(screen.queryByTestId('checkout-address-cancel')).toBeNull();
+    expect(screen.queryByTestId('checkout-address-summary')).toBeNull();
+  });
+});
+
+describe('CheckoutScreen — paiement par carte (Stripe)', () => {
+  beforeEach(() => {
+    mockZones = [zone(true)];
+    mockAppSettingsLoaded = true;
+  });
+  afterEach(() => {
+    mockAppSettings = { delivery_slots_enabled: false };
+  });
+
+  it('clé Stripe saisie par l’admin : la carte est proposée et choisie par défaut', async () => {
+    mockAppSettings = { stripe_publishable_key: 'pk_live_51HxYzAbCdEfGhIjKlMnOpQrStUvWxYz0123456789' };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    expect(screen.getByTestId('payment-card').props.accessibilityState).toMatchObject({
+      selected: true,
+      disabled: false,
+    });
+    expect(screen.getByText('Paiement sécurisé par Stripe')).toBeTruthy();
+  });
+
+  it('aucune clé Stripe : carte grisée, paiement à la livraison choisi', async () => {
+    mockAppSettings = { stripe_publishable_key: '' };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId('payment-delivery').props.accessibilityState).toMatchObject({ selected: true }),
+    );
+    expect(screen.getByTestId('payment-card').props.accessibilityState).toMatchObject({ disabled: true });
+    expect(screen.getByText('Paiement par carte indisponible pour le moment')).toBeTruthy();
+  });
+
+  it('aucune clé Stripe et espèces interdites à ce client : commande impossible', async () => {
+    mockAppSettings = { stripe_publishable_key: '' };
+    mockUser = { ...baseUser, cash_on_delivery_disabled: true };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    expect(confirmButton().props.accessibilityState?.disabled).toBe(true);
+    // Carte indisponible : pas de formulaire à remplir.
+    expect(screen.queryByTestId('checkout-card-form')).toBeNull();
+  });
+});
+
+describe('CheckoutScreen — formulaire de carte dans la page (2026-10-27)', () => {
+  /** Carte rangée sur le profil par la fonction `saveCard` (format du site). */
+  const savedCardUser = (exp_year = 2030) => ({
+    ...baseUser,
+    saved_payment_method_id: 'pm_saved',
+    saved_card_info: JSON.stringify({ last4: '4242', brand: 'visa', exp_month: 12, exp_year }),
+  });
+  let alertSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    mockZones = [zone(true)];
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  });
+  afterEach(() => alertSpy.mockRestore());
+
+  it('carte choisie d’office : formulaire affiché sous « Carte bancaire », paiement à la livraison en dessous', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    const order = screen.toJSON() ? JSON.stringify(screen.toJSON()) : '';
+    const cardRow = order.indexOf('"payment-card"');
+    const form = order.indexOf('"checkout-card-form"');
+    const delivery = order.indexOf('"payment-delivery"');
+    expect(cardRow).toBeGreaterThan(-1);
+    expect(form).toBeGreaterThan(cardRow);
+    expect(delivery).toBeGreaterThan(form);
+    expect(screen.getByText('Informations de la carte bancaire')).toBeTruthy();
+    expect(screen.getByTestId('checkout-save-card').props.accessibilityState).toMatchObject({ checked: false });
+  });
+
+  it('« Payer 9,49 € » attend une carte complète, puis débite la carte saisie', async () => {
+    mockUser = { ...baseUser, first_name: 'Salma', last_name: 'Diallo' };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    expect(confirmButton()).toHaveTextContent(/^Payer 9,49/);
+    expect(confirmButton().props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByTestId('checkout-card-missing')).toHaveTextContent(
+      'Renseignez votre carte bancaire ci-dessus pour payer.',
+    );
+
+    fillCard();
+    expect(confirmButton().props.accessibilityState?.disabled).toBeFalsy();
+    expect(screen.queryByTestId('checkout-card-missing')).toBeNull();
+    fireEvent.press(confirmButton());
+
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalledTimes(1));
+    expect(lastCreatedOrder()).toMatchObject({ payment_method: 'card', payment_status: 'pending' });
+    expect(lastCardPayment()).toEqual({
+      orderId: 'ord_1',
+      amount: 9.49,
+      walletAmount: 0,
+      lineKeys: undefined,
+      customer: { email: 'salma@x.fr', walletBalance: 0, name: 'Salma Diallo' },
+      card: { kind: 'new', save: false, replacesSavedCard: false },
+    });
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('OrderDetails', { id: 'ord_1' }));
+    expect(mockRefreshUser).toHaveBeenCalled();
+  });
+
+  it('« Enregistrer ma carte » : la carte est gardée pour les prochains paiements', async () => {
+    mockPayOrderByCard.mockResolvedValueOnce({ status: 'paid', cardSaved: true });
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    expect(screen.getByText(/supprimer à tout moment dans Paramètres › Paiement/)).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('checkout-save-card'));
+    expect(screen.getByTestId('checkout-save-card').props.accessibilityState).toMatchObject({ checked: true });
+    fillCard();
+    fireEvent.press(confirmButton());
+
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment().card).toEqual({ kind: 'new', save: true, replacesSavedCard: false });
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('OrderDetails', { id: 'ord_1' }));
+  });
+
+  it('carte enregistrée : proposée d’office, sans formulaire, « Payer » tout de suite', async () => {
+    mockUser = savedCardUser();
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    expect(screen.getByTestId('checkout-card-saved')).toHaveTextContent(/Visa •••• 4242/);
+    expect(screen.getByTestId('checkout-card-saved')).toHaveTextContent(/Expire 12\/2030/);
+    expect(screen.getByTestId('checkout-card-saved').props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.queryByTestId('checkout-card-form')).toBeNull();
+    expect(confirmButton().props.accessibilityState?.disabled).toBeFalsy();
+
+    fireEvent.press(confirmButton());
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment().card).toEqual({ kind: 'saved', paymentMethodId: 'pm_saved' });
+  });
+
+  it('« Utiliser une autre carte » : formulaire, et la nouvelle carte enregistrée remplace l’ancienne', async () => {
+    mockUser = savedCardUser();
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('checkout-card-new'));
+    expect(screen.getByTestId('checkout-card-form')).toBeTruthy();
+    expect(confirmButton().props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByTestId('checkout-card-missing')).toHaveTextContent(/ou choisissez votre carte enregistrée/);
+    expect(screen.getByText(/Elle remplacera votre Visa •••• 4242/)).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('checkout-save-card'));
+    fillCard();
+    fireEvent.press(confirmButton());
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment().card).toEqual({ kind: 'new', save: true, replacesSavedCard: true });
+  });
+
+  it('retour à la carte enregistrée : la saisie abandonnée ne compte plus', async () => {
+    mockUser = savedCardUser();
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('checkout-card-new'));
+    fillCard();
+    fireEvent.press(screen.getByTestId('checkout-card-saved'));
+    fireEvent.press(screen.getByTestId('checkout-card-new'));
+    // Formulaire recréé vide : il faut ressaisir la carte.
+    expect(confirmButton().props.accessibilityState?.disabled).toBe(true);
+  });
+
+  it('carte enregistrée expirée : grisée, le formulaire s’affiche à sa place', async () => {
+    mockUser = savedCardUser(2020);
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    expect(screen.getByTestId('checkout-card-saved').props.accessibilityState).toMatchObject({
+      selected: false,
+      disabled: true,
+    });
+    expect(screen.getByText('Carte expirée : utilisez une autre carte')).toBeTruthy();
+    expect(screen.getByTestId('checkout-card-form')).toBeTruthy();
+    expect(screen.getByTestId('checkout-card-missing')).toHaveTextContent(
+      'Renseignez votre carte bancaire ci-dessus pour payer.',
+    );
+  });
+
+  it('paiement à la livraison choisi : plus de formulaire de carte, « Confirmer ma commande »', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('payment-delivery'));
+    expect(screen.queryByTestId('checkout-card-form')).toBeNull();
+    expect(confirmButton()).toHaveTextContent('Confirmer ma commande');
+    expect(confirmButton().props.accessibilityState?.disabled).toBeFalsy();
+  });
+
+  it('carte refusée : message clair, on reste sur la page avec la carte saisie', async () => {
+    mockPayOrderByCard.mockResolvedValueOnce({
+      status: 'failed',
+      stage: 'confirm',
+      message: 'Votre banque a refusé le paiement. Essayez une autre carte ou contactez votre banque.',
+    });
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fillCard();
+    fireEvent.press(confirmButton());
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    expect(alertSpy.mock.calls[0]?.[0]).toBe('Paiement échoué');
+    expect(alertSpy.mock.calls[0]?.[1]).toMatch(/banque a refusé le paiement/);
+    expect(mockReplace).not.toHaveBeenCalled();
+    // Nouvel essai possible tout de suite.
+    expect(screen.getByTestId('checkout-card-form')).toBeTruthy();
+    await waitFor(() => expect(confirmButton().props.accessibilityState?.disabled).toBeFalsy());
+  });
+
+  it('paiement impossible à lancer : « Paiement indisponible »', async () => {
+    mockPayOrderByCard.mockResolvedValueOnce({
+      status: 'failed',
+      stage: 'init',
+      message: 'Le paiement n’a pas pu aboutir. Aucun montant n’a été débité, vous pouvez réessayer.',
+    });
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fillCard();
+    fireEvent.press(confirmButton());
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    expect(alertSpy.mock.calls[0]?.[0]).toBe('Paiement indisponible');
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('validation de la banque fermée : rien de débité, pas d’alerte, on reste sur la page', async () => {
+    mockPayOrderByCard.mockResolvedValueOnce({ status: 'canceled' });
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fillCard();
+    fireEvent.press(confirmButton());
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    await waitFor(() => expect(confirmButton().props.accessibilityState?.disabled).toBeFalsy());
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 });

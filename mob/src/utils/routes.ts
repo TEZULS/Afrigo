@@ -16,7 +16,8 @@ export const PAGE_TO_ROUTE: Record<string, keyof RootStackParamList> = {
   Promotions: 'ClientTabs',
   AllReviews: 'AllReviews',
   Checkout: 'Checkout',
-  Payment: 'Payment',
+  // Page « Moyens de paiement » du site (la carte se paie dans la validation).
+  Payment: 'PaymentMethods',
   HabitualProducts: 'HabitualProducts',
   Returns: 'Returns',
   MyReturns: 'MyReturns',

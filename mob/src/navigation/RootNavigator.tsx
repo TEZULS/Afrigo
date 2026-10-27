@@ -20,7 +20,6 @@ import type { RootStackParamList } from './types';
 import { SearchScreen } from '@/screens/client/SearchScreen';
 import { ProductDetailsScreen } from '@/screens/client/ProductDetailsScreen';
 import { CheckoutScreen } from '@/screens/client/CheckoutScreen';
-import { PaymentScreen } from '@/screens/client/PaymentScreen';
 import { OrderDetailsScreen } from '@/screens/client/OrderDetailsScreen';
 import { AllReviewsScreen } from '@/screens/client/AllReviewsScreen';
 import { RecipesScreen } from '@/screens/client/RecipesScreen';
@@ -103,7 +102,6 @@ export const RootNavigator: React.FC = () => {
         <Stack.Group screenOptions={{ animation: 'slide_from_right' }}>
           <Stack.Screen name="ProductDetails" component={ProductDetailsScreen} />
           <Stack.Screen name="Checkout" component={CheckoutScreen} />
-          <Stack.Screen name="Payment" component={PaymentScreen} />
           <Stack.Screen name="Orders" component={OrdersScreen} />
           <Stack.Screen name="OrderDetails" component={OrderDetailsScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
