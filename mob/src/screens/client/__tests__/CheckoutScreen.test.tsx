@@ -621,3 +621,54 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
     expect(mockSlotUpdate).toHaveBeenCalledWith('noon', { current_orders: 3 });
   });
 });
+
+describe('CheckoutScreen — réduction sur la livraison (réglages de la zone)', () => {
+  const discountedZone = (discount: Record<string, unknown>) => ({ ...zone(true), ...discount });
+  const confirm = () => confirmButton();
+
+  it('100 % sur la livraison : « Gratuit », frais d’origine barrés, total sans livraison', async () => {
+    mockZones = [
+      discountedZone({ delivery_discount_percentage: 100, discount_for_order_numbers: [], discount_for_new_customers: false }),
+    ];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-delivery-fee')).toHaveTextContent('2,50 € Gratuit'));
+    expect(screen.getByText('Livraison gratuite')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Paiement à la livraison'));
+    await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
+    fireEvent.press(confirm());
+    await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
+    expect(lastCreatedOrder().total_amount).toBe(6.99);
+  });
+
+  it('50 % : frais divisés par deux', async () => {
+    mockZones = [discountedZone({ delivery_discount_percentage: 50 })];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-delivery-fee')).toHaveTextContent('2,50 € 1,25 €'));
+    expect(screen.getByText('Livraison : 1,25 € (-50 %)')).toBeTruthy();
+  });
+
+  it('réduction réservée à la 1re commande : rien pour un client qui a déjà commandé', async () => {
+    mockZones = [discountedZone({ delivery_discount_percentage: 100, discount_for_new_customers: true })];
+    mockUserOrders = [{ status: 'delivered' }];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-delivery-fee')).toHaveTextContent('2,50 €'));
+    expect(screen.getByTestId('checkout-delivery-fee')).not.toHaveTextContent('Gratuit');
+  });
+
+  it('réduction sur la 2e commande : une commande annulée ne compte pas', async () => {
+    mockZones = [discountedZone({ delivery_discount_percentage: 100, discount_for_order_numbers: [2] })];
+    mockUserOrders = [{ status: 'delivered' }, { status: 'cancelled' }];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-delivery-fee')).toHaveTextContent('2,50 € Gratuit'));
+  });
+
+  it('affiche le solde du portefeuille en violet', async () => {
+    mockZones = [zone(true)];
+    mockUser = { ...baseUser, wallet_balance: 42.9 };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('42,90 €')).toBeTruthy());
+    const style = [screen.getByText('42,90 €').props.style].flat(Infinity);
+    expect(Object.assign({}, ...style).color).toBe('#9333EA');
+  });
+});
