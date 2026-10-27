@@ -605,7 +605,7 @@ Dernière review : **build 1.0.9 (16)**, iPad Pro 11-inch (M4), iPadOS 26.5.
 
 ### 14.3 Apple Pay (si demandé)
 
-Checkout → Carte bancaire → Paiement → PaymentSheet Stripe. Merchant ID : `merchant.app.afrigo.mobile`.
+Apple Pay n'est pas proposé : depuis la 1.0.41, la carte se saisit dans la page de validation (formulaire Stripe), sans fenêtre de paiement. PassKit reste lié par le SDK Stripe — à indiquer dans les Review Notes si Apple pose la question (Guideline 2.1). Merchant ID : `merchant.app.afrigo.mobile`.
 
 ### 14.4 Build et soumission
 
