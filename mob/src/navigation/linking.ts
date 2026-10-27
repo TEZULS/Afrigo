@@ -29,7 +29,6 @@ export const linking: LinkingOptions<RootStackParamList> = {
       Search: 'recherche',
       ProductDetails: 'produit/:id',
       Checkout: 'commande/checkout',
-      Payment: 'commande/paiement',
       // NB: 'commandes' et 'profil' appartiennent aux onglets ClientTabs ci-dessus ;
       // ces écrans empilés doivent donc avoir leur propre chemin (patterns uniques).
       Orders: 'mes-commandes',

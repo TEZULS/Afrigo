@@ -57,11 +57,6 @@ export type RootStackParamList = {
   Recipes: { country?: string; recipeId?: string } | undefined;
   /** `lineKeys` : lignes du panier cochées (`cartLineKey`) ; absent = tout le panier. */
   Checkout: { lineKeys?: string[] } | undefined;
-  /**
-   * `amount` = reste à régler par carte ; `walletAmount` = part réglée par le
-   * portefeuille, débitée seulement une fois le paiement carte confirmé.
-   */
-  Payment: { orderId: string; amount: number; walletAmount?: number; lineKeys?: string[] };
   PaymentMethods: undefined;
   Orders: undefined;
   OrderDetails: { id: string };
