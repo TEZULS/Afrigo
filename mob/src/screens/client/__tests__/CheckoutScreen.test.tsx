@@ -766,3 +766,45 @@ describe('CheckoutScreen — coordonnées repliées, « Modifier » puis « Enre
     expect(screen.queryByTestId('checkout-address-summary')).toBeNull();
   });
 });
+
+describe('CheckoutScreen — paiement par carte (Stripe)', () => {
+  beforeEach(() => {
+    mockZones = [zone(true)];
+    mockAppSettingsLoaded = true;
+  });
+  afterEach(() => {
+    mockAppSettings = { delivery_slots_enabled: false };
+  });
+
+  it('clé Stripe saisie par l’admin : la carte est proposée et choisie par défaut', async () => {
+    mockAppSettings = { stripe_publishable_key: 'pk_live_51HxYzAbCdEfGhIjKlMnOpQrStUvWxYz0123456789' };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    expect(screen.getByTestId('payment-card').props.accessibilityState).toMatchObject({
+      selected: true,
+      disabled: false,
+    });
+    expect(screen.getByText('Paiement sécurisé par Stripe')).toBeTruthy();
+  });
+
+  it('aucune clé Stripe : carte grisée, paiement à la livraison choisi', async () => {
+    mockAppSettings = { stripe_publishable_key: '' };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId('payment-delivery').props.accessibilityState).toMatchObject({ selected: true }),
+    );
+    expect(screen.getByTestId('payment-card').props.accessibilityState).toMatchObject({ disabled: true });
+    expect(screen.getByText('Paiement par carte indisponible pour le moment')).toBeTruthy();
+  });
+
+  it('aucune clé Stripe et espèces interdites à ce client : commande impossible', async () => {
+    mockAppSettings = { stripe_publishable_key: '' };
+    mockUser = { ...baseUser, cash_on_delivery_disabled: true };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    expect(confirmButton().props.accessibilityState?.disabled).toBe(true);
+    // Carte indisponible : pas de formulaire à remplir.
+    expect(screen.queryByTestId('checkout-card-form')).toBeNull();
+  });
+});
