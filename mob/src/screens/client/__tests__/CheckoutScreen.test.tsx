@@ -672,3 +672,16 @@ describe('CheckoutScreen — réduction sur la livraison (réglages de la zone)'
     expect(Object.assign({}, ...style).color).toBe('#9333EA');
   });
 });
+
+describe('CheckoutScreen — client hors zone de livraison', () => {
+  it('affiche « Aucune zone trouvée » en rouge foncé', async () => {
+    mockZones = [];
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-no-zone')).toBeTruthy());
+    expect(screen.getByTestId('checkout-no-zone')).toHaveTextContent(
+      'Aucune zone trouvée pour le code postal 51000.',
+    );
+    const style = Object.assign({}, ...[screen.getByTestId('checkout-no-zone').props.style].flat());
+    expect(style.color).toBe('#B91C1C');
+  });
+});
