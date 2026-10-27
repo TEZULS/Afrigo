@@ -445,7 +445,9 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
   };
   /** Mercredi 23 septembre 2026, 10 h. */
   const TEN_AM = new Date(2026, 8, 23, 10, 0);
-  const confirm = () => screen.getByRole('button', { name: 'Confirmer ma commande' });
+  const confirm = () => confirmButton();
+  /** Le paiement n'est pas le sujet ici : à la livraison, sans carte à saisir. */
+  const payOnDelivery = () => fireEvent.press(screen.getByTestId('payment-delivery'));
 
   beforeAll(() => {
     // Seule la date est figée : les minuteurs restent réels.
@@ -510,6 +512,7 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
     await waitFor(() =>
       expect(screen.getByTestId('slot-zone-3').props.accessibilityState?.selected).toBe(true),
     );
+    payOnDelivery();
     await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
     fireEvent.press(confirm());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
@@ -538,12 +541,13 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
       expect(screen.getByTestId('slot-day-label')).toHaveTextContent('Demain · Jeudi 24 Sept.'),
     );
     // Un jour futur : même le créneau du matin est proposé.
-    expect(screen.getByText('09h00 - 18h30')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('09h00 - 18h30')).toBeTruthy());
     expect(screen.queryByText('14h00 - 15h00')).toBeNull();
     await waitFor(() =>
       expect(screen.getByTestId('slot-zone-0').props.accessibilityState?.selected).toBe(true),
     );
 
+    payOnDelivery();
     await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
     fireEvent.press(confirm());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
@@ -559,7 +563,8 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
     await waitFor(() =>
       expect(screen.getByTestId('slot-day-label')).toHaveTextContent('Mercredi 30 Sept.'),
     );
-    expect(screen.getByText('09h00 - 10h00')).toBeTruthy();
+    // Les places du 30 se chargent après le changement de jour.
+    await waitFor(() => expect(screen.getByText('09h00 - 10h00')).toBeTruthy());
     expect(mockInvoke).toHaveBeenCalledWith('getDeliverySlotCounts', { date: '2026-09-30' });
   });
 
@@ -571,6 +576,7 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
     mockSlotCounts = { '09h00': 10 };
     renderWithProviders(wrap(<CheckoutScreen />));
     await waitFor(() => expect(screen.getByTestId('slots-none')).toBeTruthy());
+    payOnDelivery();
     expect(confirm().props.accessibilityState?.disabled).toBe(true);
   });
 
@@ -579,6 +585,7 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
     await waitFor(() =>
       expect(screen.getByTestId('slot-zone-2').props.accessibilityState?.selected).toBe(true),
     );
+    payOnDelivery();
     await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
 
     // Le client confirme à 11:00 : le créneau 11h00-12h00 vient de commencer.
@@ -605,6 +612,7 @@ describe('CheckoutScreen — créneau du jour même, sinon du prochain jour livr
     expect(screen.queryByText('11:00 - 12:00')).toBeNull();
     expect(screen.queryByText('2/5')).toBeNull();
 
+    payOnDelivery();
     await waitFor(() => expect(confirm().props.accessibilityState?.disabled).toBeFalsy());
     fireEvent.press(confirm());
     await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
