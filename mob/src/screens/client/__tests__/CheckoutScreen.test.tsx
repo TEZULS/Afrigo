@@ -808,3 +808,199 @@ describe('CheckoutScreen — paiement par carte (Stripe)', () => {
     expect(screen.queryByTestId('checkout-card-form')).toBeNull();
   });
 });
+
+describe('CheckoutScreen — formulaire de carte dans la page (2026-10-27)', () => {
+  /** Carte rangée sur le profil par la fonction `saveCard` (format du site). */
+  const savedCardUser = (exp_year = 2030) => ({
+    ...baseUser,
+    saved_payment_method_id: 'pm_saved',
+    saved_card_info: JSON.stringify({ last4: '4242', brand: 'visa', exp_month: 12, exp_year }),
+  });
+  let alertSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    mockZones = [zone(true)];
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  });
+  afterEach(() => alertSpy.mockRestore());
+
+  it('carte choisie d’office : formulaire affiché sous « Carte bancaire », paiement à la livraison en dessous', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    const order = screen.toJSON() ? JSON.stringify(screen.toJSON()) : '';
+    const cardRow = order.indexOf('"payment-card"');
+    const form = order.indexOf('"checkout-card-form"');
+    const delivery = order.indexOf('"payment-delivery"');
+    expect(cardRow).toBeGreaterThan(-1);
+    expect(form).toBeGreaterThan(cardRow);
+    expect(delivery).toBeGreaterThan(form);
+    expect(screen.getByText('Informations de la carte bancaire')).toBeTruthy();
+    expect(screen.getByTestId('checkout-save-card').props.accessibilityState).toMatchObject({ checked: false });
+  });
+
+  it('« Payer 9,49 € » attend une carte complète, puis débite la carte saisie', async () => {
+    mockUser = { ...baseUser, first_name: 'Salma', last_name: 'Diallo' };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    expect(confirmButton()).toHaveTextContent(/^Payer 9,49/);
+    expect(confirmButton().props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByTestId('checkout-card-missing')).toHaveTextContent(
+      'Renseignez votre carte bancaire ci-dessus pour payer.',
+    );
+
+    fillCard();
+    expect(confirmButton().props.accessibilityState?.disabled).toBeFalsy();
+    expect(screen.queryByTestId('checkout-card-missing')).toBeNull();
+    fireEvent.press(confirmButton());
+
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalledTimes(1));
+    expect(lastCreatedOrder()).toMatchObject({ payment_method: 'card', payment_status: 'pending' });
+    expect(lastCardPayment()).toEqual({
+      orderId: 'ord_1',
+      amount: 9.49,
+      walletAmount: 0,
+      lineKeys: undefined,
+      customer: { email: 'salma@x.fr', walletBalance: 0, name: 'Salma Diallo' },
+      card: { kind: 'new', save: false, replacesSavedCard: false },
+    });
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('OrderDetails', { id: 'ord_1' }));
+    expect(mockRefreshUser).toHaveBeenCalled();
+  });
+
+  it('« Enregistrer ma carte » : la carte est gardée pour les prochains paiements', async () => {
+    mockPayOrderByCard.mockResolvedValueOnce({ status: 'paid', cardSaved: true });
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    expect(screen.getByText(/supprimer à tout moment dans Paramètres › Paiement/)).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('checkout-save-card'));
+    expect(screen.getByTestId('checkout-save-card').props.accessibilityState).toMatchObject({ checked: true });
+    fillCard();
+    fireEvent.press(confirmButton());
+
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment().card).toEqual({ kind: 'new', save: true, replacesSavedCard: false });
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('OrderDetails', { id: 'ord_1' }));
+  });
+
+  it('carte enregistrée : proposée d’office, sans formulaire, « Payer » tout de suite', async () => {
+    mockUser = savedCardUser();
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    expect(screen.getByTestId('checkout-card-saved')).toHaveTextContent(/Visa •••• 4242/);
+    expect(screen.getByTestId('checkout-card-saved')).toHaveTextContent(/Expire 12\/2030/);
+    expect(screen.getByTestId('checkout-card-saved').props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.queryByTestId('checkout-card-form')).toBeNull();
+    expect(confirmButton().props.accessibilityState?.disabled).toBeFalsy();
+
+    fireEvent.press(confirmButton());
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment().card).toEqual({ kind: 'saved', paymentMethodId: 'pm_saved' });
+  });
+
+  it('« Utiliser une autre carte » : formulaire, et la nouvelle carte enregistrée remplace l’ancienne', async () => {
+    mockUser = savedCardUser();
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('checkout-card-new'));
+    expect(screen.getByTestId('checkout-card-form')).toBeTruthy();
+    expect(confirmButton().props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByTestId('checkout-card-missing')).toHaveTextContent(/ou choisissez votre carte enregistrée/);
+    expect(screen.getByText(/Elle remplacera votre Visa •••• 4242/)).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('checkout-save-card'));
+    fillCard();
+    fireEvent.press(confirmButton());
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    expect(lastCardPayment().card).toEqual({ kind: 'new', save: true, replacesSavedCard: true });
+  });
+
+  it('retour à la carte enregistrée : la saisie abandonnée ne compte plus', async () => {
+    mockUser = savedCardUser();
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('checkout-card-new'));
+    fillCard();
+    fireEvent.press(screen.getByTestId('checkout-card-saved'));
+    fireEvent.press(screen.getByTestId('checkout-card-new'));
+    // Formulaire recréé vide : il faut ressaisir la carte.
+    expect(confirmButton().props.accessibilityState?.disabled).toBe(true);
+  });
+
+  it('carte enregistrée expirée : grisée, le formulaire s’affiche à sa place', async () => {
+    mockUser = savedCardUser(2020);
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+
+    expect(screen.getByTestId('checkout-card-saved').props.accessibilityState).toMatchObject({
+      selected: false,
+      disabled: true,
+    });
+    expect(screen.getByText('Carte expirée : utilisez une autre carte')).toBeTruthy();
+    expect(screen.getByTestId('checkout-card-form')).toBeTruthy();
+    expect(screen.getByTestId('checkout-card-missing')).toHaveTextContent(
+      'Renseignez votre carte bancaire ci-dessus pour payer.',
+    );
+  });
+
+  it('paiement à la livraison choisi : plus de formulaire de carte, « Confirmer ma commande »', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('payment-delivery'));
+    expect(screen.queryByTestId('checkout-card-form')).toBeNull();
+    expect(confirmButton()).toHaveTextContent('Confirmer ma commande');
+    expect(confirmButton().props.accessibilityState?.disabled).toBeFalsy();
+  });
+
+  it('carte refusée : message clair, on reste sur la page avec la carte saisie', async () => {
+    mockPayOrderByCard.mockResolvedValueOnce({
+      status: 'failed',
+      stage: 'confirm',
+      message: 'Votre banque a refusé le paiement. Essayez une autre carte ou contactez votre banque.',
+    });
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fillCard();
+    fireEvent.press(confirmButton());
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    expect(alertSpy.mock.calls[0]?.[0]).toBe('Paiement échoué');
+    expect(alertSpy.mock.calls[0]?.[1]).toMatch(/banque a refusé le paiement/);
+    expect(mockReplace).not.toHaveBeenCalled();
+    // Nouvel essai possible tout de suite.
+    expect(screen.getByTestId('checkout-card-form')).toBeTruthy();
+    await waitFor(() => expect(confirmButton().props.accessibilityState?.disabled).toBeFalsy());
+  });
+
+  it('paiement impossible à lancer : « Paiement indisponible »', async () => {
+    mockPayOrderByCard.mockResolvedValueOnce({
+      status: 'failed',
+      stage: 'init',
+      message: 'Le paiement n’a pas pu aboutir. Aucun montant n’a été débité, vous pouvez réessayer.',
+    });
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fillCard();
+    fireEvent.press(confirmButton());
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    expect(alertSpy.mock.calls[0]?.[0]).toBe('Paiement indisponible');
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('validation de la banque fermée : rien de débité, pas d’alerte, on reste sur la page', async () => {
+    mockPayOrderByCard.mockResolvedValueOnce({ status: 'canceled' });
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fillCard();
+    fireEvent.press(confirmButton());
+    await waitFor(() => expect(mockPayOrderByCard).toHaveBeenCalled());
+    await waitFor(() => expect(confirmButton().props.accessibilityState?.disabled).toBeFalsy());
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+});
