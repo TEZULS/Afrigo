@@ -685,3 +685,84 @@ describe('CheckoutScreen — client hors zone de livraison', () => {
     expect(style.color).toBe('#B91C1C');
   });
 });
+
+describe('CheckoutScreen — coordonnées repliées, « Modifier » puis « Enregistrer »', () => {
+  beforeEach(() => {
+    mockZones = [zone(true), { ...zone(true), id: 'z4', name: 'Zone 4', postal_codes: ['55000'] }];
+  });
+
+  it('adresse du profil : un seul résumé (l’adresse), sans champs de saisie ni bloc téléphone', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    expect(screen.getByTestId('checkout-address-summary')).toHaveTextContent(
+      '3 rue des Lilas51000 Châlons-en-Champagne',
+    );
+    expect(screen.queryByTestId('checkout-city')).toBeNull();
+    expect(screen.getByTestId('checkout-edit-address')).toHaveTextContent('Modifier');
+    // Le téléphone ne se voit (et ne se modifie) que dans le formulaire déplié.
+    expect(screen.queryByText('Téléphone')).toBeNull();
+    expect(screen.queryByText('0600000000')).toBeNull();
+    expect(screen.queryByTestId('checkout-edit-phone')).toBeNull();
+    fireEvent.press(screen.getByTestId('checkout-edit-address'));
+    expect(screen.getByTestId('checkout-phone').props.value).toBe('0600000000');
+  });
+
+  it('« Modifier » déplie toute la zone ; « Enregistrer » replie avec la nouvelle adresse, utilisée pour la commande', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('checkout-edit-address'));
+    expect(screen.getByTestId('checkout-city').props.value).toBe('Châlons-en-Champagne');
+    expect(screen.getByTestId('checkout-postal-code').props.value).toBe('51000');
+
+    fireEvent.changeText(screen.getByTestId('checkout-postal-code'), '55000');
+    fireEvent.changeText(screen.getByTestId('checkout-city'), 'Bar-le-Duc');
+    fireEvent.changeText(screen.getByTestId('checkout-phone'), '+33780616245');
+    await waitFor(() => expect(screen.getByText('Zone 4')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('checkout-address-save'));
+
+    expect(screen.queryByTestId('checkout-city')).toBeNull();
+    expect(screen.getByTestId('checkout-address-summary')).toHaveTextContent(/55000 Bar-le-Duc/);
+
+    fillCard();
+    fireEvent.press(confirmButton());
+    await waitFor(() => expect(mockOrderCreate).toHaveBeenCalled());
+    expect(lastCreatedOrder()).toMatchObject({
+      delivery_address: '3 rue des Lilas',
+      delivery_postal_code: '55000',
+      delivery_city: 'Bar-le-Duc',
+    });
+    expect(lastCreatedOrder().notes).toBe('Tel: +33780616245');
+  });
+
+  it('« Annuler » rétablit les coordonnées d’avant', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('checkout-edit-address'));
+    fireEvent.changeText(screen.getByTestId('checkout-city'), 'Reims');
+    fireEvent.changeText(screen.getByTestId('checkout-phone'), '0700000000');
+    fireEvent.press(screen.getByTestId('checkout-address-cancel'));
+    expect(screen.getByTestId('checkout-address-summary')).toHaveTextContent(/3 rue des Lilas.*51000 Châlons-en-Champagne/);
+    fireEvent.press(screen.getByTestId('checkout-edit-address'));
+    expect(screen.getByTestId('checkout-phone').props.value).toBe('0600000000');
+  });
+
+  it('« Enregistrer » refusé tant que l’adresse est incomplète (code postal à 5 chiffres)', async () => {
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByText('Zone 3')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('checkout-edit-address'));
+    fireEvent.changeText(screen.getByTestId('checkout-postal-code'), '510');
+    const save = screen.getByTestId('checkout-address-save');
+    expect(save.props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByText(/code postal \(5 chiffres\)/)).toBeTruthy();
+    fireEvent.press(save);
+    expect(screen.getByTestId('checkout-city')).toBeTruthy();
+  });
+
+  it('profil sans adresse : formulaire ouvert d’office, sans « Annuler »', async () => {
+    mockUser = { ...baseUser, address: '', postal_code: '', city: '' };
+    renderWithProviders(wrap(<CheckoutScreen />));
+    await waitFor(() => expect(screen.getByTestId('checkout-address-form')).toBeTruthy());
+    expect(screen.queryByTestId('checkout-address-cancel')).toBeNull();
+    expect(screen.queryByTestId('checkout-address-summary')).toBeNull();
+  });
+});
