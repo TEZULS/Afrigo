@@ -17,6 +17,7 @@ import { configureNotificationHandler } from '@/services/pushNotifications';
 import { ToastHost } from '@/components/ui/ToastHost';
 import { LegalConsentGate } from '@/components/legal/LegalConsentGate';
 import { LaunchIntro } from '@/components/LaunchIntro';
+import { ResumeRefresh } from '@/components/ResumeRefresh';
 import { ReturnDraftRestorer } from '@/components/ReturnDraftRestorer';
 import { StripeReturnUrlHandler } from '@/components/StripeReturnUrlHandler';
 import { useLaunchIntro } from '@/stores/launchIntro';
@@ -65,6 +66,8 @@ export default function App() {
   const appBody = (
     <AuthProvider>
       <PushNotificationsBridge />
+      {/* Retour après 5 min ailleurs : données relues, retour sur l'accueil. */}
+      <ResumeRefresh />
       {/* Android a fermé l'app pendant une photo de réclamation : retour au formulaire. */}
       <ReturnDraftRestorer />
       {/* iPhone : retour de la page de validation de la banque pendant un paiement par carte. */}
